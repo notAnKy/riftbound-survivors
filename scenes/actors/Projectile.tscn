@@ -1,0 +1,16 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/actors/projectile.gd" id="1_shot"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_shot"]
+radius = 5.0
+
+[node name="Projectile" type="Area2D"]
+collision_layer = 8
+collision_mask = 5
+script = ExtResource("1_shot")
+
+[node name="Shape" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_shot")
+
+[connection signal="body_entered" from="." to="." method="_on_body_entered"]

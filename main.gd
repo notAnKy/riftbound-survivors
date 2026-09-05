@@ -14,12 +14,19 @@ var profile := ProfileManager.new()
 var menu_hover := ""
 
 func _ready() -> void:
+	# The actors drive themselves from _physics_process now, so pausing the
+	# tree is what stops the game. These three have to keep running to draw
+	# the menus, read input and feed the audio generator while it is paused.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	ui.process_mode = Node.PROCESS_MODE_ALWAYS
+	audio.process_mode = Node.PROCESS_MODE_ALWAYS
 	profile.load_profile()
 	session.level_up_requested.connect(func() -> void: state = "level_up")
 	session.run_ended.connect(on_run_ended)
 	session.rift_effects_enabled = rift_effects_enabled
 
 func _process(delta: float) -> void:
+	get_tree().paused = state != "playing"
 	if state == "playing":
 		session.tick(delta)
 	if state == "title" or state == "armory":

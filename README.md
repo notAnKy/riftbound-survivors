@@ -26,7 +26,17 @@ An original Godot 4 arena-survival prototype where sci-fi drones, fantasy rifts,
 
 ## Current prototype
 
-The prototype includes timed rounds, intermissions, boss rounds every five rounds, escalating enemy power, auto-fire, XP drops, rarity-based level-up selections, character/gun unlocks, and a persistent coin profile. Characters and enemies use CC0 sprites from Kenney's Topdown Shooter pack (see `assets/ATTRIBUTION.md`); the arena, HUD, effects, and menus are all drawn in code.
+The arena runs on Godot physics: the player and every enemy are collision bodies, so a crowd spreads out under its own pressure and the arena walls actually stop you. The prototype includes timed rounds, intermissions, boss rounds every five rounds, escalating enemy power, auto-fire, XP drops, rarity-based level-up selections, character/gun unlocks, and a persistent coin profile. Characters and enemies use CC0 sprites from Kenney's Topdown Shooter pack (see `assets/ATTRIBUTION.md`); the arena, HUD, effects, and menus are all drawn in code.
+
+## Enemies
+
+- **Husk**: the baseline shambler.
+- **Runner**: fast, weaves as it closes.
+- **Gunner**: holds its range and shoots back.
+- **Brute**: slow, heavy, hits hard.
+- **Marauder**: quick and durable, from round 6.
+- **Warden**: weaving elite, from round 8.
+- **Riftlord**: the boss that opens every fifth round.
 
 ## Round flow
 
