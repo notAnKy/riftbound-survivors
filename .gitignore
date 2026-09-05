@@ -1,0 +1,13 @@
+# Godot 4 editor cache and reimported resources
+.godot/
+
+# Export output
+/build/
+*.exe
+*.pck
+
+# Windows shell junk
+Thumbs.db
+
+# Redundant: every file in it is already extracted alongside it
+assets/kenney/topdown-shooter.zip
