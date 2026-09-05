@@ -34,6 +34,8 @@ func bootstrap() -> void:
 	await test_pickup_is_collected()
 	await test_death_ends_run_once()
 	await test_boss_rounds()
+	await test_pause_freezes_the_field()
+	test_balance_curve()
 	test_profile_sanitizing()
 	print("FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)
@@ -165,3 +167,43 @@ func test_profile_sanitizing() -> void:
 	check("bad unlock indices dropped (%s)" % [clean.unlocked_characters], clean.unlocked_characters == [0, 1])
 	var kept := profile.sanitized({"coins": 120.0, "unlocked_guns": [0, 2], "unlocked_characters": [0]})
 	check("a valid profile survives intact", kept.coins == 120 and kept.unlocked_guns == [0, 2])
+
+# Regression: the controller was PROCESS_MODE_ALWAYS and every child inherits
+# that by default, so the whole game tree ignored the pause. Enemies kept
+# walking and killing during the pause and level-up menus.
+func test_pause_freezes_the_field() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	var mob = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(200, 0), false)
+	await step(2)
+	for menu in ["paused", "level_up"]:
+		game.state = menu
+		await step(4)
+		var frozen_at: Vector2 = mob.position
+		var hp_at: float = s.player_hp
+		await step(60)
+		check("%s freezes enemy movement (moved %.1fpx)" % [menu, mob.position.distance_to(frozen_at)], mob.position.distance_to(frozen_at) < 0.5)
+		check("%s stops the player taking damage (%.0f -> %.0f)" % [menu, hp_at, s.player_hp], is_equal_approx(s.player_hp, hp_at))
+	# and the freeze has to lift again, or the test above passes on a dead game
+	game.state = "playing"
+	var resumed_at: Vector2 = mob.position
+	await step(30)
+	check("leaving the menu lets enemies move again (%.1fpx)" % mob.position.distance_to(resumed_at), mob.position.distance_to(resumed_at) > 5.0)
+	game.free()
+
+func test_balance_curve() -> void:
+	var husk: float = EnemyCatalog.all()[0].hp
+	var r1 := Balance.enemy_hp(1, husk)
+	var r10 := Balance.enemy_hp(10, husk)
+	check("round 1 enemies die to a few shots (%.0f hp)" % r1, r1 < 45.0)
+	check("round 10 is a step up without being a wall (%.0f hp)" % r10, r10 > 200.0 and r10 < 900.0)
+	check("boss at round 5 is beatable (%.0f hp)" % Balance.boss_hp(5), Balance.boss_hp(5) < 900.0)
+	var need := Balance.XP_FIRST_LEVEL
+	var total := 0
+	for i in range(5):
+		total += need
+		need = Balance.next_level_xp(need)
+	check("five levels cost a reachable amount of xp (%d)" % total, total < 200)

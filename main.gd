@@ -20,6 +20,11 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	ui.process_mode = Node.PROCESS_MODE_ALWAYS
 	audio.process_mode = Node.PROCESS_MODE_ALWAYS
+	# Children default to INHERIT, which means they take the parent effective
+	# mode -- so marking the controller ALWAYS silently made the whole game
+	# tree unpausable, and enemies kept moving through the pause and level-up
+	# menus. The session has to opt back in explicitly.
+	session.process_mode = Node.PROCESS_MODE_PAUSABLE
 	profile.load_profile()
 	session.level_up_requested.connect(func() -> void: state = "level_up")
 	session.run_ended.connect(on_run_ended)

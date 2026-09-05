@@ -30,16 +30,16 @@ func configure(def: Dictionary, round_number: int, target: Player, is_boss: bool
 	player = target
 	behaviour = String(def.behaviour)
 	tint = def.get("tint", Color.WHITE)
-	var intensity: float = pow(1.30, round_number - 1)
 	if is_boss:
-		max_hp = 560.0 * (1.0 + (round_number - 1) * 0.34)
-		speed = 45.0 + round_number * 2.0
+		max_hp = Balance.boss_hp(round_number)
+		speed = Balance.BOSS_SPEED_BASE + round_number * Balance.BOSS_SPEED_PER_ROUND
 	else:
-		max_hp = (38.0 + round_number * 12.0) * float(def.hp) * intensity
-		speed = (randf_range(54.0, 82.0) + round_number * 4.0) * float(def.speed)
+		max_hp = Balance.enemy_hp(round_number, float(def.hp))
+		var roll := randf_range(Balance.ENEMY_SPEED_MIN, Balance.ENEMY_SPEED_MAX)
+		speed = (roll + round_number * Balance.ENEMY_SPEED_PER_ROUND) * float(def.speed)
 	hp = max_hp
 	radius = float(def.radius)
-	contact_damage = float(def.damage) + round_number * 0.8
+	contact_damage = float(def.damage) + round_number * Balance.ENEMY_DAMAGE_PER_ROUND
 	attack_cooldown = float(def.cooldown)
 	attack_timer = randf_range(0.0, attack_cooldown)
 	material_value = int(def.material)

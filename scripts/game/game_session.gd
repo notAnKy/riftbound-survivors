@@ -21,7 +21,7 @@ var run_time := 0.0
 var spawn_timer := 0.0
 var level := 1
 var xp := 0
-var xp_to_next := 24
+var xp_to_next := Balance.XP_FIRST_LEVEL
 var kills := 0
 var round_number := 1
 var round_duration := 40.0
@@ -78,7 +78,7 @@ func reset_run() -> void:
 	spawn_timer = 0.0
 	level = 1
 	xp = 0
-	xp_to_next = 24
+	xp_to_next = Balance.XP_FIRST_LEVEL
 	kills = 0
 	round_number = 1
 	round_length = round_duration
@@ -134,8 +134,7 @@ func begin_round() -> void:
 func spawn_enemies(delta: float) -> void:
 	spawn_timer -= delta
 	if spawn_timer > 0.0: return
-	var intensity: float = pow(1.30, round_number - 1)
-	spawn_timer = maxf(0.16, 1.05 / intensity)
+	spawn_timer = maxf(Balance.SPAWN_INTERVAL_MIN, Balance.SPAWN_INTERVAL / Balance.intensity(round_number))
 	var options := EnemyCatalog.available(round_number)
 	for count in range(1 + int(round_number / 4)):
 		spawn_enemy(options[rng.randi_range(0, options.size() - 1)], spawn_point(), false)
@@ -230,7 +229,7 @@ func on_pickup_collected(value: int) -> void:
 	if xp >= xp_to_next:
 		xp -= xp_to_next
 		level += 1
-		xp_to_next = int(ceil(xp_to_next * 1.45)) + 5
+		xp_to_next = Balance.next_level_xp(xp_to_next)
 		upgrades = UpgradeCatalog.roll_choices(rng, round_number)
 		level_up_requested.emit()
 

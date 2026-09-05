@@ -14,7 +14,8 @@ gone. What is left of the old shape is the state machine and the menu drawing.
 - `scripts/game/arena.gd` / `arena_trim.gd`: bounds, walls, border and rifts.
 - `scripts/actors/`: one script per actor scene.
 - `scripts/ui/game_ui.gd`: menus, HUD, upgrade overlay.
-- `scripts/data/`: gun, character, upgrade and enemy catalogs.
+- `scripts/data/`: gun, character, upgrade and enemy catalogs, plus
+  `balance.gd` -- every number the difficulty curve depends on.
 - `scripts/lib/layers.gd`: physics layer bits.
 - `scripts/save/profile_manager.gd`: persistent coins and unlocks.
 - `assets/sprites/`: the sprites the game loads, cut from the Kenney pack in
@@ -31,6 +32,12 @@ That split is why **pausing is `get_tree().paused`**, set from `main.gd` off the
 application state. `GameController`, `GameUI` and `AudioSfx` are
 `PROCESS_MODE_ALWAYS` so the menus still draw, input still routes and the audio
 generator keeps its buffer fed while everything else is frozen.
+
+**`GameSession` must then be set back to `PROCESS_MODE_PAUSABLE` by hand.** A
+node defaults to `PROCESS_MODE_INHERIT`, which takes the *parent effective*
+mode, so marking the controller `ALWAYS` quietly made every descendant
+unpausable too. The symptom is subtle: the menus look right, but enemies keep
+walking and killing behind the pause and level-up overlays.
 
 The UI still reads the player vitals as `session.player_hp` and friends, but
 those are now **property getters that forward to the player node** rather than
