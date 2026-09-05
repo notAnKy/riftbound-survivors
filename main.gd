@@ -3,19 +3,33 @@ extends Node2D
 
 # States: title, armory, settings, playing, level_up, shop, paused,
 # settings_pause, game_over. Anything other than "playing" pauses the tree.
-const MOUSE_STATES := ["title", "armory", "shop"]
+
+# Screens whose rows can be clicked.
+const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause", "paused"]
+# Screens that are a vertical list, driven with the arrow keys and Enter.
+const MENU_STATES := ["title", "settings", "settings_pause", "paused"]
 
 @onready var session: GameSession = $GameSession
 @onready var audio: AudioSfx = $AudioSfx
 @onready var ui: GameUI = $GameUI
 
-var state := "title"
 var selected_gun := 0
 var selected_character := 0
 var sound_enabled := true
 var rift_effects_enabled := true
 var profile := ProfileManager.new()
 var menu_hover := ""
+# Which row the keyboard is on. Declared before `state` because the setter
+# below resets it, and member initialisers run in declaration order.
+var menu_index := 0
+
+var state := "title":
+	set(value):
+		if state == value: return
+		state = value
+		# Landing on a new screen should always start at its first row rather
+		# than wherever the last screen happened to be pointing.
+		menu_index = 0
 
 func _ready() -> void:
 	# The actors drive themselves from _physics_process now, so pausing the
@@ -40,8 +54,34 @@ func _process(delta: float) -> void:
 	if state == "playing":
 		session.tick(delta)
 	if state in MOUSE_STATES:
-		menu_hover = ui.menu_action_at(get_viewport().get_mouse_position())
+		sync_hover(get_viewport().get_mouse_position())
 	ui.queue_redraw()
+
+# --- menu navigation ---------------------------------------------------------
+
+# Keep the keyboard cursor under the mouse, so the two never disagree about
+# which row is about to be activated.
+func sync_hover(point: Vector2) -> void:
+	menu_hover = ui.menu_action_at(point)
+	var hovered := menu_items().find(menu_hover)
+	if hovered >= 0: menu_index = hovered
+
+func menu_items() -> Array[String]:
+	match state:
+		"title": return ["play", "armory", "settings", "quit"]
+		"settings", "settings_pause": return ["sound", "rift", "fullscreen", "back"]
+		"paused": return ["resume", "settings", "menu"]
+	return []
+
+func move_menu(step: int) -> void:
+	var items := menu_items()
+	if items.is_empty(): return
+	menu_index = wrapi(menu_index + step, 0, items.size())
+
+func activate_menu() -> void:
+	var items := menu_items()
+	if menu_index >= 0 and menu_index < items.size():
+		handle_menu_action(items[menu_index])
 
 func start_run() -> void:
 	if not profile.is_gun_unlocked(selected_gun):
@@ -60,6 +100,9 @@ func on_run_ended() -> void:
 func open_settings() -> void:
 	state = "settings_pause" if state == "paused" else "settings"
 
+func leave_settings() -> void:
+	state = "paused" if state == "settings_pause" else "title"
+
 func leave_shop() -> void:
 	session.begin_round()
 	state = "playing"
@@ -74,11 +117,20 @@ func handle_menu_action(action: String) -> void:
 	match action:
 		"play": start_run()
 		"armory": state = "armory"
-		"settings": state = "settings"
-		"back": state = "title"
+		"settings": open_settings()
+		"sound": toggle_sound()
+		"rift": toggle_rift_effects()
+		"fullscreen": toggle_fullscreen()
+		"resume": state = "playing"
+		"menu": state = "title"
+		"back": leave_back()
 		"reroll": session.reroll_shop()
 		"go": leave_shop()
 		"quit": get_tree().quit()
+
+func leave_back() -> void:
+	if state == "settings" or state == "settings_pause": leave_settings()
+	else: state = "title"
 
 func is_fullscreen() -> bool:
 	var mode := get_window().mode
@@ -102,12 +154,26 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not (event is InputEventKey and event.pressed and not event.echo): return
 	# Fullscreen is global: it has to work from every screen, so it is handled
-	# before any per-state key mapping gets a look at the event.
+	# before any per-state key mapping gets a look at the event. It is also
+	# reachable as a settings row, since F11 is an Fn-layer key on many
+	# laptops and never arrives.
 	if event.keycode == KEY_F11 or (event.keycode == KEY_ENTER and event.alt_pressed):
 		toggle_fullscreen()
 		return
+	# Arrow-key navigation for every screen that is a vertical list.
+	if state in MENU_STATES:
+		match event.keycode:
+			KEY_UP:
+				move_menu(-1)
+				return
+			KEY_DOWN:
+				move_menu(1)
+				return
+			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_LEFT, KEY_RIGHT:
+				activate_menu()
+				return
 	if state == "title":
-		if event.keycode == KEY_ENTER or event.keycode == KEY_SPACE or event.keycode == KEY_P: handle_menu_action("play")
+		if event.keycode == KEY_P: handle_menu_action("play")
 		elif event.keycode == KEY_A: handle_menu_action("armory")
 		elif event.keycode == KEY_S: handle_menu_action("settings")
 		elif event.keycode == KEY_Q: handle_menu_action("quit")
@@ -118,7 +184,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif state == "settings" or state == "settings_pause":
 		if event.keycode == KEY_S: toggle_sound()
 		elif event.keycode == KEY_V: toggle_rift_effects()
-		elif event.keycode == KEY_ESCAPE: state = "paused" if state == "settings_pause" else "title"
+		elif event.keycode == KEY_F: toggle_fullscreen()
+		elif event.keycode == KEY_ESCAPE: leave_settings()
 	elif state == "paused":
 		if event.keycode == KEY_ESCAPE: state = "playing"
 		elif event.keycode == KEY_S: open_settings()

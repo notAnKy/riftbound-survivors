@@ -18,6 +18,11 @@ const SLOT_SIZE := Vector2(250, 62)
 const SLOT_TOP := 640.0
 const SLOT_GAP := 14.0
 
+const ROW_SIZE := Vector2(700, 66)
+const ROW_GAP := 12.0
+const SETTINGS_TOP := 380.0
+const PAUSE_TOP := 450.0
+
 const MENU_BUTTON := Vector2(440, 64)
 const MENU_TOP := 520.0
 const MENU_STEP := 84.0
@@ -80,6 +85,19 @@ func menu_button_rect(index: int) -> Rect2:
 func armory_back_rect() -> Rect2:
 	return Rect2(60, 60, 170, 52)
 
+func settings_row_rect(index: int) -> Rect2:
+	return Rect2(Vector2((SCREEN.x - ROW_SIZE.x) * 0.5, SETTINGS_TOP + index * (ROW_SIZE.y + ROW_GAP)), ROW_SIZE)
+
+func pause_row_rect(index: int) -> Rect2:
+	return Rect2(Vector2((SCREEN.x - ROW_SIZE.x) * 0.5, PAUSE_TOP + index * (ROW_SIZE.y + ROW_GAP)), ROW_SIZE)
+
+# A row is lit either because the mouse is over it or because the keyboard
+# cursor is on it; the controller keeps those two in step.
+func is_focused(action: String) -> bool:
+	if game.menu_hover == action: return true
+	var items := game.menu_items()
+	return game.menu_index >= 0 and game.menu_index < items.size() and items[game.menu_index] == action
+
 func gun_rect(index: int) -> Rect2:
 	return row_rect(index, 3, Vector2(400, 240), 280.0, 40.0)
 
@@ -90,6 +108,14 @@ func menu_action_at(point: Vector2) -> String:
 			if menu_button_rect(i).has_point(point): return actions[i]
 	elif game.state == "armory" and armory_back_rect().has_point(point):
 		return "back"
+	elif game.state == "settings" or game.state == "settings_pause":
+		var rows := ["sound", "rift", "fullscreen", "back"]
+		for i in range(rows.size()):
+			if settings_row_rect(i).has_point(point): return rows[i]
+	elif game.state == "paused":
+		var rows := ["resume", "settings", "menu"]
+		for i in range(rows.size()):
+			if pause_row_rect(i).has_point(point): return rows[i]
 	elif game.state == "shop":
 		for i in range(SHOP_CARDS):
 			if card_rect(i).has_point(point): return "buy_%d" % i
@@ -152,7 +178,7 @@ func draw_menu_background() -> void:
 	draw_arc(Vector2(SCREEN.x * 0.5, 300), 108.0, 0.0, TAU, 28, Color(0.27,0.88,0.94,0.16), 5.0)
 
 func draw_menu_button(rect: Rect2, label: String, action: String, color: Color) -> void:
-	var hovered := game.menu_hover == action
+	var hovered := is_focused(action)
 	var pulse := (sin(Time.get_ticks_msec() * 0.008) + 1.0) * 0.5
 	var shown_rect := rect.grow(4.0 + pulse * 2.0) if hovered else rect
 	draw_panel(shown_rect, Color(color.r, color.g, color.b, 0.16) if hovered else Color("17233e"), color, 3.0 if hovered else 1.5)
@@ -296,24 +322,36 @@ func draw_upgrades() -> void:
 		text_at(rect.position + Vector2(24, 228), "Press %d" % (i + 1), 15, Color("ffe09b"))
 
 func draw_pause() -> void:
-	fill_screen(Color(0.02,0.03,0.08,0.76))
-	text_centered(SCREEN.x * 0.5, 430, "PAUSED", 48, Color("eaf1ff"))
-	text_centered(SCREEN.x * 0.5, 500, "ESC  •  Continue", 21, Color("ffe09b"))
-	text_centered(SCREEN.x * 0.5, 540, "S  •  Settings", 21, Color("b6c6e8"))
-	text_centered(SCREEN.x * 0.5, 580, "Q  •  Main Menu", 21, Color("b6c6e8"))
+	fill_screen(Color(0.02,0.03,0.08,0.80))
+	text_centered(SCREEN.x * 0.5, 380, "PAUSED", 48, Color("eaf1ff"))
+	var rows := [["CONTINUE", "resume", Color("69f4d4")], ["SETTINGS", "settings", Color("82b7ff")], ["MAIN MENU", "menu", Color("ff718b")]]
+	for i in range(rows.size()):
+		draw_menu_button(pause_row_rect(i), rows[i][0], rows[i][1], rows[i][2])
+	text_centered(SCREEN.x * 0.5, pause_row_rect(rows.size() - 1).end.y + 56, "Arrows + Enter, or click  •  ESC continues", 16, Color("8ea4cb"))
 
 func draw_settings(title: String, footer: String) -> void:
 	fill_screen(Color("0b1020"))
 	text_centered(SCREEN.x * 0.5, 300, title, 44, Color("eaf1ff"))
-	var panel := Rect2((SCREEN.x - 700.0) * 0.5, 380, 700, 320)
-	draw_panel(panel, Color("182441"), Color("607cab"))
-	text_at(panel.position + Vector2(60, 84), "S    Sound Effects", 24, Color("e9f0ff"))
-	text_right(panel.end.x - 60, panel.position.y + 84, "ON" if game.sound_enabled else "OFF", 24, Color("69f4d4") if game.sound_enabled else Color("ff718b"))
-	text_at(panel.position + Vector2(60, 164), "V    Rift Effects", 24, Color("e9f0ff"))
-	text_right(panel.end.x - 60, panel.position.y + 164, "ON" if game.rift_effects_enabled else "OFF", 24, Color("69f4d4") if game.rift_effects_enabled else Color("ff718b"))
-	text_at(panel.position + Vector2(60, 244), "F11  Fullscreen", 24, Color("e9f0ff"))
-	text_right(panel.end.x - 60, panel.position.y + 244, "ON" if game.is_fullscreen() else "OFF", 24, Color("69f4d4") if game.is_fullscreen() else Color("ff718b"))
-	text_centered(SCREEN.x * 0.5, 700, footer, 17, Color("aabce1"))
+	var rows := [
+		{"action": "sound", "key": "S", "label": "Sound Effects", "on": game.sound_enabled},
+		{"action": "rift", "key": "V", "label": "Rift Effects", "on": game.rift_effects_enabled},
+		{"action": "fullscreen", "key": "F11", "label": "Fullscreen", "on": game.is_fullscreen()},
+	]
+	for i in range(rows.size()):
+		draw_toggle_row(settings_row_rect(i), rows[i])
+	draw_menu_button(settings_row_rect(rows.size()), "BACK", "back", Color("aabce1"))
+	text_centered(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 56, "Arrows + Enter, or click  •  %s" % footer, 16, Color("8ea4cb"))
+
+func draw_toggle_row(rect: Rect2, row: Dictionary) -> void:
+	var focused := is_focused(String(row.action))
+	var accent: Color = Color("69f4d4") if row.on else Color("ff718b")
+	draw_panel(rect, Color(0.10,0.15,0.27,0.95) if focused else Color("182441"), Color("d6e2fa") if focused else Color("3d527d"), 3.0 if focused else 1.5)
+	# A bright edge on the focused row, so the selection is obvious without
+	# relying on the border weight alone.
+	if focused: draw_rect(Rect2(rect.position, Vector2(6, rect.size.y)), Color("ffe09b"))
+	text_at(rect.position + Vector2(28, 44), String(row.key), 18, Color("8ea4cb"))
+	text_at(rect.position + Vector2(120, 44), String(row.label), 24, Color("e9f0ff"))
+	text_right(rect.end.x - 28, rect.position.y + 44, "ON" if row.on else "OFF", 24, accent)
 
 func draw_game_over() -> void:
 	fill_screen(Color(0.03,0.01,0.07,0.78))

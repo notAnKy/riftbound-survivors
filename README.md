@@ -17,7 +17,8 @@ An original Godot 4 arena-survival prototype where sci-fi drones, fantasy rifts,
 - **Q**: Rift Dash (short cooldown).
 - **E**: Rift Nova, a shockwave that damages and throws back everything around you.
 - **Escape**: pause; press **S** from the title screen or pause menu for settings.
-- **F11** or **Alt+Enter**: toggle fullscreen.
+- **F11** or **Alt+Enter**: toggle fullscreen — or click the Fullscreen row in Settings.
+- Menus take the **arrow keys and Enter**, or the mouse.
 - **Space**: start another run after dying.
 
 ## The loop

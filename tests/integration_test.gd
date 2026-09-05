@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 71
+const EXPECTED_CHECKS := 85
 var checks := 0
 
 func _initialize() -> void:
@@ -48,6 +48,7 @@ func bootstrap() -> void:
 	await test_nova()
 	test_stat_math()
 	test_display_settings()
+	await test_menu_navigation()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -435,3 +436,78 @@ func test_display_settings() -> void:
 	check("the default window leaves room for a title bar (%dpx tall)" % window_h, window_h > 0 and window_h <= 1000)
 	var visible: Vector2 = get_root().get_visible_rect().size
 	check("the viewport still measures the full design area (%s)" % visible, visible == design)
+
+# --- menus: mouse and keyboard have to agree ---------------------------------
+
+func press(game, keycode: int) -> void:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.pressed = true
+	game._unhandled_input(event)
+
+func click(game, at: Vector2) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.pressed = true
+	event.position = at
+	game._unhandled_input(event)
+
+func test_menu_navigation() -> void:
+	var game = load("res://Main.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+
+	game.state = "settings"
+	check("a screen opens on its first row", game.menu_index == 0)
+	press(game, KEY_DOWN)
+	check("down moves the cursor (%d)" % game.menu_index, game.menu_index == 1)
+	press(game, KEY_UP)
+	press(game, KEY_UP)
+	check("up wraps round to the last row (%d)" % game.menu_index, game.menu_index == game.menu_items().size() - 1)
+
+	game.menu_index = 2
+	game.state = "title"
+	check("changing screen resets the cursor", game.menu_index == 0)
+
+	# Enter activates whatever is focused, on every list screen.
+	game.state = "settings"
+	var sound_before: bool = game.sound_enabled
+	press(game, KEY_ENTER)
+	check("enter toggles the focused row", game.sound_enabled != sound_before)
+	press(game, KEY_DOWN)
+	var rift_before: bool = game.rift_effects_enabled
+	press(game, KEY_SPACE)
+	check("space works the same as enter", game.rift_effects_enabled != rift_before)
+	game.menu_index = game.menu_items().size() - 1
+	press(game, KEY_ENTER)
+	check("the back row leaves the screen", game.state == "title")
+
+	# Every row has to hit-test to its own action, or a click lands on the
+	# wrong setting.
+	for screen in ["settings", "paused", "title"]:
+		game.state = screen
+		var items: Array[String] = game.menu_items()
+		var matched := true
+		for i in range(items.size()):
+			var rect: Rect2 = game.ui.settings_row_rect(i) if screen == "settings" else (game.ui.pause_row_rect(i) if screen == "paused" else game.ui.menu_button_rect(i))
+			if game.ui.menu_action_at(rect.get_center()) != items[i]: matched = false
+		check("every %s row hit-tests to its own action" % screen, matched)
+
+	# A click has to do the same thing the keyboard would.
+	game.state = "settings"
+	var before: bool = game.rift_effects_enabled
+	click(game, game.ui.settings_row_rect(1).get_center())
+	check("clicking a row toggles it", game.rift_effects_enabled != before)
+
+	# The mouse and the keyboard cursor must not disagree about the target.
+	game.state = "settings"
+	game.menu_index = 0
+	game.sync_hover(game.ui.settings_row_rect(2).get_center())
+	check("hovering moves the keyboard cursor onto that row (%d)" % game.menu_index, game.menu_index == 2 and game.menu_hover == "fullscreen")
+	game.sync_hover(Vector2(5, 5))
+	check("moving off the rows leaves the cursor where it was (%d)" % game.menu_index, game.menu_index == 2 and game.menu_hover == "")
+
+	game.state = "paused"
+	press(game, KEY_ENTER)
+	check("pause resumes from its first row", game.state == "playing")
+	game.free()

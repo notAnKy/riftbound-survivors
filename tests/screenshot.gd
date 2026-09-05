@@ -41,6 +41,11 @@ func capture() -> void:
 	await settle(4)
 	await shoot("01_title")
 
+	game.state = "settings"
+	game.menu_index = 2
+	await settle(3)
+	await shoot("08_settings")
+
 	game.state = "armory"
 	await settle(3)
 	await shoot("02_armory")

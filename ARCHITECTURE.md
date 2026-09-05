@@ -59,7 +59,22 @@ up. `tests/screenshot.gd` prints window size, design size and whether anything
 is cropped on every run.
 
 **F11 (or Alt+Enter) toggles borderless fullscreen**, handled in `main.gd`
-before any per-state key mapping so it works from every screen.
+before any per-state key mapping so it works from every screen. It is *also* a
+row in Settings, because F11 sits on the Fn layer of many laptop keyboards and
+simply never arrives -- a single key is not a reliable way to offer fullscreen.
+
+## Menus
+
+The list screens (title, settings, pause) are driven by `menu_items()` in
+`main.gd`: one array per screen, in the order they are drawn. `menu_index` is
+the keyboard cursor, `menu_hover` the mouse, and **`sync_hover` pulls the
+cursor onto whatever the mouse is over** so the two can never disagree about
+which row Enter would activate. Assigning `state` resets the cursor to the
+first row, via the setter rather than at every call site.
+
+`GameUI.is_focused(action)` is what lights a row, and it answers for both input
+methods. The tests assert that every row hit-tests to its own action, so a
+layout edit cannot silently make a click land on the wrong setting.
 
 **`GameUI.SCREEN` is the one source of screen size** and every menu rectangle
 comes from a helper (`menu_button_rect`, `card_rect`, `slot_rect`, ...) that
