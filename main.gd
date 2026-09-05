@@ -50,6 +50,11 @@ func _ready() -> void:
 	session.rift_effects_enabled = rift_effects_enabled
 
 func _process(delta: float) -> void:
+	# Restored here rather than in the session, because this node keeps
+	# running while the tree is paused: pausing mid hit-stop would otherwise
+	# leave the whole game at 6% speed with nothing left to undo it.
+	if Engine.time_scale < 1.0 and Time.get_ticks_msec() >= session.hitstop_until:
+		Engine.time_scale = 1.0
 	get_tree().paused = state != "playing"
 	if state == "playing":
 		session.tick(delta)

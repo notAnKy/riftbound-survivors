@@ -44,6 +44,33 @@ const NOVA_DAMAGE := 46.0
 const NOVA_KNOCKBACK := 620.0
 const NOVA_COOLDOWN := 8.0
 
+# Elites: a rare, much tougher version of any enemy, worth far more materials.
+const ELITE_FIRST_ROUND := 3
+const ELITE_CHANCE_BASE := 0.02
+const ELITE_CHANCE_PER_ROUND := 0.012
+const ELITE_CHANCE_MAX := 0.16
+const ELITE_HP := 3.2
+const ELITE_SCALE := 1.35
+const ELITE_SPEED := 0.9
+const ELITE_MATERIALS := 4
+
+# Screen shake, in pixels of offset, and how fast it bleeds off.
+const SHAKE_MAX := 24.0
+const SHAKE_DECAY := 48.0
+const SHAKE_PLAYER_HIT := 5.0
+const SHAKE_KILL := 1.1
+const SHAKE_NOVA := 15.0
+const SHAKE_BOSS_DEATH := 22.0
+
+# Hit stop, in seconds of real time.
+const HITSTOP_SCALE := 0.06
+const HITSTOP_NOVA := 0.05
+const HITSTOP_BOSS_DEATH := 0.12
+
+static func elite_chance(round_number: int) -> float:
+	if round_number < ELITE_FIRST_ROUND: return 0.0
+	return minf(ELITE_CHANCE_BASE + float(round_number) * ELITE_CHANCE_PER_ROUND, ELITE_CHANCE_MAX)
+
 static func intensity(round_number: int) -> float:
 	return pow(ROUND_INTENSITY, round_number - 1)
 

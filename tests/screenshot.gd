@@ -81,6 +81,20 @@ func capture() -> void:
 	await settle(13)
 	await shoot("07_nova")
 
+	# Damage numbers and an elite (the ringed one) under sustained fire.
+	s.round_number = 8
+	s.round_phase = "cleanup"
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	s.add_weapon("smg", 2)
+	s.add_weapon("shotgun", 1)
+	for i in range(7):
+		var at: Vector2 = s.player.position + Vector2(randf_range(-250, 250), randf_range(-190, 190))
+		s.spawn_enemy(EnemyCatalog.all()[i % 4], at, false, i == 0)
+	await settle(50)
+	await shoot("09_numbers")
+
 	# The shop, with a purse worth spending and a couple of things owned.
 	s.materials = 46
 	s.add_weapon("smg", 1)

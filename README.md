@@ -53,6 +53,9 @@ The arena runs on Godot physics: the player and every enemy are collision bodies
 - **Warden**: weaving elite, from round 8.
 - **Riftlord**: the boss that opens every fifth round.
 
+From round 3, any enemy can turn up as an **elite** — ringed in gold, far
+tougher, and worth four times the materials.
+
 ## Staying alive
 
 Enemies sometimes drop a **bandage**, and you heal a little every twenty kills

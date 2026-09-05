@@ -2,6 +2,7 @@ class_name Player
 extends CharacterBody2D
 
 signal died
+signal was_hit
 
 const DASH_SPEED := 3.1
 const DASH_TIME := 0.16
@@ -88,6 +89,7 @@ func hurt(amount: float) -> void:
 	if stats.dodges(rng): return
 	hp = maxf(0.0, hp - stats.damage_taken(amount))
 	hit_flash = 0.1
+	was_hit.emit()
 	# `alive` is the latch: every damage source funnels through here, so the
 	# run can only end once no matter how many enemies land a blow this frame.
 	if hp <= 0.0:

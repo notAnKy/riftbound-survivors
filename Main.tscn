@@ -23,5 +23,7 @@ script = ExtResource("2_session")
 
 [node name="Pickups" type="Node2D" parent="GameSession"]
 
+[node name="Numbers" type="Node2D" parent="GameSession"]
+
 [node name="GameUI" type="Node2D" parent="."]
 script = ExtResource("4_ui")

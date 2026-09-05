@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 85
+const EXPECTED_CHECKS := 103
 var checks := 0
 
 func _initialize() -> void:
@@ -49,6 +49,9 @@ func bootstrap() -> void:
 	test_stat_math()
 	test_display_settings()
 	await test_menu_navigation()
+	await test_damage_numbers()
+	await test_elites()
+	await test_shake_and_hitstop()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -384,7 +387,7 @@ func test_healing() -> void:
 	var before: float = s.player.hp
 	s.kills = 0
 	for i in range(Balance.HEAL_EVERY_KILLS):
-		s.on_enemy_died(s.player.position + Vector2(400, 0), 1)
+		s.on_enemy_died(s.player.position + Vector2(400, 0), 1, false)
 	check("a run of kills heals on its own (%.0f -> %.0f)" % [before, s.player.hp], s.player.hp > before)
 	s.player.hp = s.player.max_hp
 	s.player.heal(10.0)
@@ -510,4 +513,79 @@ func test_menu_navigation() -> void:
 	game.state = "paused"
 	press(game, KEY_ENTER)
 	check("pause resumes from its first row", game.state == "playing")
+	game.free()
+
+# --- phase 3: feel -----------------------------------------------------------
+
+func test_damage_numbers() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	s.round_phase = "cleanup"
+	var mob = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(150, 0), false)
+	mob.max_hp = 1000000.0
+	mob.hp = mob.max_hp
+	await step(1)
+	mob.take_damage(37.0, false)
+	await step(2)
+	check("a hit spawns a floating number (%d)" % s.numbers.get_child_count(), s.numbers.get_child_count() == 1)
+	var number = s.numbers.get_child(0)
+	check("it reads the damage dealt (%d)" % number.amount, number.amount == 37)
+	check("and is not flagged as a crit", not number.crit)
+	mob.take_damage(80.0, true)
+	await step(2)
+	check("a crit is flagged for the bigger style", s.numbers.get_child(1).crit)
+	# A fast weapon must not be able to bury the screen in numbers.
+	for i in range(GameSession.MAX_NUMBERS + 40):
+		mob.take_damage(1.0, false)
+	await step(2)
+	check("the number count is capped (%d)" % s.numbers.get_child_count(), s.numbers.get_child_count() <= GameSession.MAX_NUMBERS + 1)
+	game.free()
+
+func test_elites() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	s.round_phase = "cleanup"
+	s.round_number = 6
+	var normal = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(300, 0), false, false)
+	var elite = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(400, 0), false, true)
+	await step(1)
+	check("an elite has far more health (%.0f vs %.0f)" % [elite.max_hp, normal.max_hp], elite.max_hp > normal.max_hp * 3.0)
+	check("it is worth more materials (%d vs %d)" % [elite.material_value, normal.material_value], elite.material_value > normal.material_value)
+	check("it is physically bigger (%.0f vs %.0f)" % [elite.radius, normal.radius], elite.radius > normal.radius)
+	check("no elites before round %d" % Balance.ELITE_FIRST_ROUND, is_zero_approx(Balance.elite_chance(1)) and is_zero_approx(Balance.elite_chance(2)))
+	check("elites appear later (%.2f at round 6)" % Balance.elite_chance(6), Balance.elite_chance(6) > 0.0)
+	check("and stay rare (%.2f at round 40)" % Balance.elite_chance(40), Balance.elite_chance(40) <= Balance.ELITE_CHANCE_MAX)
+	game.free()
+
+func test_shake_and_hitstop() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	s.shake = 0.0
+	s.position = Vector2.ZERO
+	s.add_shake(Balance.SHAKE_NOVA)
+	check("shake builds up (%.1f)" % s.shake, s.shake > 0.0)
+	s.add_shake(1000.0)
+	check("and is capped (%.1f)" % s.shake, s.shake <= Balance.SHAKE_MAX)
+	await step(4)
+	check("it offsets the field", s.position != Vector2.ZERO)
+	# The HUD is a sibling of the session, so it must not be moving with it.
+	check("but not the HUD", game.ui.position == Vector2.ZERO)
+	for i in range(120):
+		s._process(0.05)
+	check("it settles back to nothing (%.1f, %s)" % [s.shake, s.position], is_zero_approx(s.shake) and s.position == Vector2.ZERO)
+
+	s.hit_stop(0.05)
+	check("hit stop slows time (%.2f)" % Engine.time_scale, Engine.time_scale < 1.0)
+	# main.gd restores it, because it keeps processing while the tree is
+	# paused and the session does not.
+	s.hitstop_until = 0
+	game._process(0.016)
+	check("and time is restored afterwards (%.2f)" % Engine.time_scale, is_equal_approx(Engine.time_scale, 1.0))
+	Engine.time_scale = 1.0
 	game.free()

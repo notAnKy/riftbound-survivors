@@ -140,6 +140,29 @@ rack does not block a purchase that would combine -- see `would_combine`.
 Projectile lifetime is derived from reach rather than authored, so the range
 printed on a shop card is the range actually fired, Range stat included.
 
+## Feel
+
+Three things sell a hit, and each is deliberately cheap:
+
+- **Damage numbers** are one `Node2D` per hit that draws a string and frees
+  itself. They are added with a plain `add_child`, *not* deferred: a
+  `DamageNumber` carries no collision shape so the physics server has no
+  objection, and deferring made the `MAX_NUMBERS` cap read a stale child count
+  and let every hit through.
+- **Screen shake** offsets `GameSession.position`, which carries the arena and
+  every actor but not the HUD -- that lives on a sibling node and has to stay
+  still. It decays in `_process`, so it keeps moving between wave ticks.
+- **Hit stop** drops `Engine.time_scale` for a few tens of milliseconds on a
+  boss death or a nova. **It is restored in `main.gd`, not the session**,
+  because the controller keeps processing while the tree is paused: pausing
+  mid hit-stop would otherwise strand the whole game at 6% speed with nothing
+  left running to undo it. The deadline is real time (`Time.get_ticks_msec`),
+  since scaled delta would stretch with the effect.
+
+**Elites** are any enemy with every dimension scaled at once -- health, size,
+speed, material value -- and a gold ring drawn round them. No separate art, no
+separate catalog entry, and the chance ramps by round to a cap.
+
 ## Physics
 
 Layer bits live in `scripts/lib/layers.gd` and are mirrored by name in

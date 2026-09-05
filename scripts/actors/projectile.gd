@@ -45,7 +45,7 @@ func _on_body_entered(body: Node2D) -> void:
 		return
 	if body is Enemy and not already_hit.has(body):
 		already_hit.append(body)
-		body.take_damage(damage)
+		body.take_damage(damage, crit)
 		dealt_damage.emit(damage)
 		if pierce > 0: pierce -= 1
 		else: queue_free()

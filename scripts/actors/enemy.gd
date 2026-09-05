@@ -1,7 +1,8 @@
 class_name Enemy
 extends CharacterBody2D
 
-signal died(at: Vector2, material_value: int)
+signal died(at: Vector2, material_value: int, was_boss: bool)
+signal damaged(at: Vector2, amount: float, crit: bool)
 signal wants_shot(from: Vector2, direction: Vector2, damage: float, shot_speed: float)
 
 var definition: Dictionary = {}
@@ -19,6 +20,8 @@ var bullet_speed := 0.0
 var hit_flash := 0.0
 var wobble := 0.0
 var knockback := Vector2.ZERO
+var is_elite := false
+var is_boss := false
 var age := 0.0
 var alive := true
 var tint := Color.WHITE
@@ -26,8 +29,10 @@ var player: Player = null
 
 # Called straight after add_child(). $Sprite / $Body resolve as soon as the
 # scene is instantiated, so this does not depend on _ready having run.
-func configure(def: Dictionary, round_number: int, target: Player, is_boss: bool = false) -> void:
+func configure(def: Dictionary, round_number: int, target: Player, boss: bool = false, elite: bool = false) -> void:
 	definition = def
+	is_boss = boss
+	is_elite = elite and not boss
 	player = target
 	behaviour = String(def.behaviour)
 	tint = def.get("tint", Color.WHITE)
@@ -47,9 +52,17 @@ func configure(def: Dictionary, round_number: int, target: Player, is_boss: bool
 	attack_range = float(def.get("range", 0.0))
 	bullet_speed = float(def.get("bullet_speed", 0.0))
 	wobble = randf() * TAU
+	# An elite is any enemy, scaled up in every direction at once, so the
+	# threat reads without needing its own art.
+	if is_elite:
+		max_hp *= Balance.ELITE_HP
+		hp = max_hp
+		speed *= Balance.ELITE_SPEED
+		radius *= Balance.ELITE_SCALE
+		material_value *= Balance.ELITE_MATERIALS
 	var sprite := $Sprite as Sprite2D
 	sprite.texture = load("res://assets/sprites/%s.png" % def.texture)
-	sprite.scale = Vector2.ONE * float(def.scale)
+	sprite.scale = Vector2.ONE * float(def.scale) * (Balance.ELITE_SCALE if is_elite else 1.0)
 	sprite.modulate = tint
 	var shape := $Body as CollisionShape2D
 	shape.shape = shape.shape.duplicate()
@@ -97,17 +110,22 @@ func _physics_process(delta: float) -> void:
 func push(direction: Vector2, force: float) -> void:
 	knockback = direction.normalized() * force
 
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, crit: bool = false) -> void:
 	if not alive: return
 	hp -= amount
 	hit_flash = 0.07
+	damaged.emit(global_position, amount, crit)
 	queue_redraw()
 	if hp <= 0.0:
 		alive = false
-		died.emit(global_position, material_value)
+		died.emit(global_position, material_value, is_boss)
 		queue_free()
 
 func _draw() -> void:
+	if is_elite:
+		var pulse := 3.0 + sin(age * 4.0) * 2.0
+		draw_arc(Vector2.ZERO, radius + pulse, 0.0, TAU, 28, Color(1.0, 0.78, 0.28, 0.75), 3.0)
+		draw_arc(Vector2.ZERO, radius + pulse + 6.0, 0.0, TAU, 28, Color(1.0, 0.55, 0.25, 0.30), 2.0)
 	if hp >= max_hp: return
 	var width := radius * 2.2
 	var ratio := clampf(hp / max_hp, 0.0, 1.0)

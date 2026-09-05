@@ -10,11 +10,16 @@ const ENEMY_SCENE := preload("res://scenes/actors/Enemy.tscn")
 const SHOT_SCENE := preload("res://scenes/actors/Projectile.tscn")
 const PICKUP_SCENE := preload("res://scenes/actors/Pickup.tscn")
 const NOVA_SCENE := preload("res://scenes/actors/Nova.tscn")
+const NUMBER_SCENE := preload("res://scenes/actors/DamageNumber.tscn")
+# A fast weapon can land dozens of hits a second; past this many live numbers
+# the screen is unreadable anyway, so stop adding to it.
+const MAX_NUMBERS := 60
 const MAX_WEAPONS := 6
 
 @onready var actors: Node2D = $Actors
 @onready var shots: Node2D = $Shots
 @onready var pickups: Node2D = $Pickups
+@onready var numbers: Node2D = $Numbers
 
 var player: Player = null
 var stats: Stats = Stats.new()
@@ -35,6 +40,8 @@ var round_time_left := 40.0
 var round_phase := "combat"
 var selected_gun := 0
 var nova_cooldown := 0.0
+var shake := 0.0
+var hitstop_until := 0
 var upgrades: Array[Dictionary] = []
 var rng := RandomNumberGenerator.new()
 var audio: AudioSfx
@@ -61,8 +68,24 @@ func _ready() -> void:
 	audio = get_node("../AudioSfx") as AudioSfx
 	rift_effects_enabled = rift_effects_enabled
 
+# Shake offsets the whole session node, which carries the arena and every
+# actor but not the HUD -- that lives on a sibling and has to stay still.
+func add_shake(amount: float) -> void:
+	shake = minf(shake + amount, Balance.SHAKE_MAX)
+
+func hit_stop(seconds: float) -> void:
+	hitstop_until = Time.get_ticks_msec() + int(seconds * 1000.0)
+	Engine.time_scale = Balance.HITSTOP_SCALE
+
+func _process(delta: float) -> void:
+	if shake > 0.0:
+		shake = maxf(0.0, shake - Balance.SHAKE_DECAY * delta)
+		position = Vector2(randf_range(-shake, shake), randf_range(-shake, shake))
+	elif position != Vector2.ZERO:
+		position = Vector2.ZERO
+
 func reset_run() -> void:
-	for group in [actors, shots, pickups]:
+	for group in [actors, shots, pickups, numbers]:
 		for child in group.get_children():
 			group.remove_child(child)
 			child.queue_free()
@@ -78,6 +101,7 @@ func reset_run() -> void:
 	player.position = Arena.BOUNDS.get_center()
 	add_child(player)
 	player.died.connect(func() -> void: run_ended.emit())
+	player.was_hit.connect(func() -> void: add_shake(Balance.SHAKE_PLAYER_HIT))
 	(player.get_node("Magnet") as Area2D).area_entered.connect(on_magnet_touched)
 	run_time = 0.0
 	spawn_timer = 0.0
@@ -90,6 +114,8 @@ func reset_run() -> void:
 	round_time_left = round_length
 	round_phase = "combat"
 	nova_cooldown = 0.0
+	shake = 0.0
+	position = Vector2.ZERO
 	player.hp = player.max_hp
 	player.refresh_pickup_radius()
 
@@ -225,8 +251,10 @@ func spawn_enemies(delta: float) -> void:
 	if spawn_timer > 0.0: return
 	spawn_timer = maxf(Balance.SPAWN_INTERVAL_MIN, Balance.SPAWN_INTERVAL / Balance.intensity(round_number))
 	var options := EnemyCatalog.available(round_number)
+	var elite_odds := Balance.elite_chance(round_number)
 	for count in range(1 + int(round_number / 4)):
-		spawn_enemy(options[rng.randi_range(0, options.size() - 1)], spawn_point(), false)
+		var def: Dictionary = options[rng.randi_range(0, options.size() - 1)]
+		spawn_enemy(def, spawn_point(), false, rng.randf() < elite_odds)
 
 # Enemies used to appear outside the arena and walk in. With real walls that
 # would trap them, so they arrive just inside the border, away from the player.
@@ -243,14 +271,24 @@ func spawn_point() -> Vector2:
 			return p
 	return band.position
 
-func spawn_enemy(def: Dictionary, at: Vector2, is_boss: bool) -> Enemy:
+func spawn_enemy(def: Dictionary, at: Vector2, is_boss: bool, is_elite: bool = false) -> Enemy:
 	var enemy: Enemy = ENEMY_SCENE.instantiate()
 	enemy.position = at
 	actors.add_child(enemy)
-	enemy.configure(def, round_number, player, is_boss)
+	enemy.configure(def, round_number, player, is_boss, is_elite)
 	enemy.died.connect(on_enemy_died)
+	enemy.damaged.connect(on_enemy_damaged)
 	enemy.wants_shot.connect(on_enemy_shot)
 	return enemy
+
+func on_enemy_damaged(at: Vector2, amount: float, crit: bool) -> void:
+	if numbers.get_child_count() >= MAX_NUMBERS: return
+	var number: DamageNumber = NUMBER_SCENE.instantiate()
+	number.setup(at, amount, crit)
+	# Added straight away, not deferred: a DamageNumber carries no collision
+	# shape, so the physics server has no objection, and deferring would make
+	# the cap above read a stale count and let every hit through.
+	numbers.add_child(number)
 
 func nearest_enemy(within: float = INF) -> Enemy:
 	if not is_instance_valid(player): return null
@@ -318,9 +356,14 @@ func on_enemy_shot(from: Vector2, direction: Vector2, damage: float, shot_speed:
 	shots.add_child(shot)
 	shot.launch(from, direction, shot_speed, damage, 3.0, Color("ff9f6d"), 0, true)
 
-func on_enemy_died(at: Vector2, material_value: int) -> void:
+func on_enemy_died(at: Vector2, material_value: int, was_boss: bool) -> void:
 	kills += 1
 	audio.play_tone(190.0, 0.06)
+	if was_boss:
+		add_shake(Balance.SHAKE_BOSS_DEATH)
+		hit_stop(Balance.HITSTOP_BOSS_DEATH)
+	else:
+		add_shake(Balance.SHAKE_KILL)
 	drop_pickup(at, material_value, Pickup.KIND_MATERIAL)
 	# Luck nudges the bandage roll, so the stat is worth something outside the
 	# shop as well.
@@ -388,4 +431,6 @@ func rift_nova() -> void:
 		enemy.push(offset, Balance.NOVA_KNOCKBACK * falloff)
 		enemy.take_damage(punch * falloff)
 	nova_cooldown = Balance.NOVA_COOLDOWN
+	add_shake(Balance.SHAKE_NOVA)
+	hit_stop(Balance.HITSTOP_NOVA)
 	audio.play_tone(150.0, 0.35)
