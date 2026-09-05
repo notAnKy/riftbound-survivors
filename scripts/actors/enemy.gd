@@ -18,6 +18,7 @@ var attack_range := 0.0
 var bullet_speed := 0.0
 var hit_flash := 0.0
 var wobble := 0.0
+var knockback := Vector2.ZERO
 var age := 0.0
 var alive := true
 var tint := Color.WHITE
@@ -82,12 +83,19 @@ func _physics_process(delta: float) -> void:
 				wants_shot.emit(global_position, direction, contact_damage, bullet_speed)
 		_:
 			velocity = direction * speed
+	# Knockback rides on top of the steering and bleeds off, so a nova throws
+	# the crowd outward without permanently changing where they are heading.
+	velocity += knockback
+	knockback = knockback.move_toward(Vector2.ZERO, 1500.0 * delta)
 	# Enemies collide with each other, so a crowd spreads out under its own
 	# pressure instead of stacking into one sprite the way the old sim did.
 	move_and_slide()
 	if behaviour != "shooter" and distance < radius + Player.BODY_RADIUS + 2.0 and attack_timer <= 0.0:
 		attack_timer = attack_cooldown
 		player.hurt(contact_damage)
+
+func push(direction: Vector2, force: float) -> void:
+	knockback = direction.normalized() * force
 
 func take_damage(amount: float) -> void:
 	if not alive: return

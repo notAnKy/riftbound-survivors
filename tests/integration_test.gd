@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 56
+const EXPECTED_CHECKS := 65
 var checks := 0
 
 func _initialize() -> void:
@@ -44,6 +44,8 @@ func bootstrap() -> void:
 	await test_weapon_rack_limit()
 	await test_multi_weapon_output()
 	await test_materials_are_currency_and_xp()
+	await test_healing()
+	await test_nova()
 	test_stat_math()
 	test_balance_curve()
 	test_profile_sanitizing()
@@ -131,7 +133,10 @@ func test_shot_kills_and_drops() -> void:
 	target.take_damage(99999.0)
 	await step(2)
 	check("a killed enemy leaves the field", not is_instance_valid(target))
-	check("a kill drops a pickup (%d)" % s.pickups.get_child_count(), s.pickups.get_child_count() == 1)
+	var materials_dropped := 0
+	for drop in s.pickups.get_children():
+		if drop.kind == Pickup.KIND_MATERIAL: materials_dropped += 1
+	check("a kill drops exactly one material pickup (%d of %d drops)" % [materials_dropped, s.pickups.get_child_count()], materials_dropped == 1)
 	check("the kill counted (%d)" % s.kills, s.kills == 1)
 	game.free()
 
@@ -359,3 +364,52 @@ func test_stat_math() -> void:
 	for i in range(400):
 		if dodgy.dodges(rng): dodged += 1
 	check("dodge is capped well below certainty (%d/400)" % dodged, dodged > 180 and dodged < 290)
+
+# --- phase 2.5: healing, nova, bigger arena ----------------------------------
+
+func test_healing() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	s.player.hp = 20.0
+	s.on_pickup_collected(Balance.HEALTH_DROP_AMOUNT, Pickup.KIND_HEALTH)
+	check("a bandage heals instead of paying materials (hp %.0f, mats %d)" % [s.player.hp, s.materials], s.player.hp > 20.0 and s.materials == 0)
+	# the steady trickle: every HEAL_EVERY_KILLS kills pays out
+	s.player.hp = 20.0
+	var before: float = s.player.hp
+	s.kills = 0
+	for i in range(Balance.HEAL_EVERY_KILLS):
+		s.on_enemy_died(s.player.position + Vector2(400, 0), 1)
+	check("a run of kills heals on its own (%.0f -> %.0f)" % [before, s.player.hp], s.player.hp > before)
+	s.player.hp = s.player.max_hp
+	s.player.heal(10.0)
+	check("healing at full hp does not overflow (%.0f/%.0f)" % [s.player.hp, s.player.max_hp], is_equal_approx(s.player.hp, s.player.max_hp))
+	game.free()
+
+func test_nova() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	s.round_phase = "cleanup"
+	var near = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(90, 0), false)
+	var far = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(Balance.NOVA_RADIUS + 260.0, 0), false)
+	near.max_hp = 100000.0
+	near.hp = near.max_hp
+	far.max_hp = 100000.0
+	far.hp = far.max_hp
+	await step(1)
+	var near_hp: float = near.hp
+	var far_hp: float = far.hp
+	var near_at: Vector2 = near.position
+	s.nova_cooldown = 0.0
+	s.rift_nova()
+	check("the nova spawns a visible blast", s.get_node_or_null("NovaBlast") != null)
+	check("it damages what is inside the ring (%.0f -> %.0f)" % [near_hp, near.hp], near.hp < near_hp)
+	check("and spares what is outside it", is_equal_approx(far.hp, far_hp))
+	await step(10)
+	check("it throws enemies outward (%.0fpx)" % near.position.distance_to(near_at), near.position.distance_to(near_at) > 20.0)
+	check("the nova goes on cooldown (%.1fs)" % s.nova_cooldown, s.nova_cooldown > 0.0)
+	await step(45)
+	check("the blast cleans itself up", s.get_node_or_null("NovaBlast") == null)
+	game.free()

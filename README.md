@@ -15,7 +15,7 @@ An original Godot 4 arena-survival prototype where sci-fi drones, fantasy rifts,
 - **1**-**4**: choose a level-up evolution, or buy that slot in the shop.
 - **R**: reroll the shop. **Space**: start the next wave.
 - **Q**: Rift Dash (short cooldown).
-- **E**: Rift Nova (area damage, longer cooldown).
+- **E**: Rift Nova, a shockwave that damages and throws back everything around you.
 - **Escape**: pause; press **S** from the title screen or pause menu for settings.
 - **Space**: start another run after dying.
 
@@ -50,6 +50,12 @@ The arena runs on Godot physics: the player and every enemy are collision bodies
 - **Marauder**: quick and durable, from round 6.
 - **Warden**: weaving elite, from round 8.
 - **Riftlord**: the boss that opens every fifth round.
+
+## Staying alive
+
+Enemies sometimes drop a **bandage**, and you heal a little every twenty kills
+regardless. Materials fly to you from a wide radius, so you rarely have to walk
+onto a drop; the Pickup Range stat widens it further.
 
 ## Round flow
 

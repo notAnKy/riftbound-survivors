@@ -7,7 +7,7 @@ const DASH_SPEED := 3.1
 const DASH_TIME := 0.16
 const DASH_COOLDOWN := 4.0
 const BODY_RADIUS := 13.0
-const BASE_PICKUP_RADIUS := 34.0
+const BASE_PICKUP_RADIUS := 105.0
 
 # Everything derived lives on the sheet. The session hands one in at the start
 # of a run and then only ever adds to it, so an item bought in the shop changes
@@ -20,6 +20,7 @@ var dash_time := 0.0
 var last_move := Vector2.RIGHT
 var hit_flash := 0.0
 var alive := true
+var heal_flash := 0.0
 var tint := Color.WHITE
 var rng := RandomNumberGenerator.new()
 
@@ -45,7 +46,11 @@ func _physics_process(delta: float) -> void:
 	if alive:
 		var regen := stats.get_stat("hp_regen")
 		if regen > 0.0: hp = minf(max_hp, hp + regen * delta)
-	($Sprite as Sprite2D).modulate = Color(2.2, 0.8, 0.8) if hit_flash > 0.0 else tint
+	heal_flash = maxf(0.0, heal_flash - delta)
+	var sprite := $Sprite as Sprite2D
+	if hit_flash > 0.0: sprite.modulate = Color(2.2, 0.8, 0.8)
+	elif heal_flash > 0.0: sprite.modulate = Color(0.7, 2.1, 1.2)
+	else: sprite.modulate = tint
 	var direction := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if direction != Vector2.ZERO: last_move = direction
 	if dash_time > 0.0:
@@ -71,7 +76,12 @@ func dash() -> bool:
 	return true
 
 func heal(amount: float) -> void:
-	if alive: hp = minf(max_hp, hp + amount)
+	if not alive or amount <= 0.0: return
+	var before := hp
+	hp = minf(max_hp, hp + amount)
+	# Only flash on a heal that actually did something, or lifesteal at full
+	# health would leave the player permanently green.
+	if hp > before + 0.01: heal_flash = 0.22
 
 func hurt(amount: float) -> void:
 	if not alive: return

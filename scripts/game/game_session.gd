@@ -9,6 +9,7 @@ const PLAYER_SCENE := preload("res://scenes/actors/Player.tscn")
 const ENEMY_SCENE := preload("res://scenes/actors/Enemy.tscn")
 const SHOT_SCENE := preload("res://scenes/actors/Projectile.tscn")
 const PICKUP_SCENE := preload("res://scenes/actors/Pickup.tscn")
+const NOVA_SCENE := preload("res://scenes/actors/Nova.tscn")
 const MAX_WEAPONS := 6
 
 @onready var actors: Node2D = $Actors
@@ -320,8 +321,20 @@ func on_enemy_shot(from: Vector2, direction: Vector2, damage: float, shot_speed:
 func on_enemy_died(at: Vector2, material_value: int) -> void:
 	kills += 1
 	audio.play_tone(190.0, 0.06)
+	drop_pickup(at, material_value, Pickup.KIND_MATERIAL)
+	# Luck nudges the bandage roll, so the stat is worth something outside the
+	# shop as well.
+	var bandage_odds: float = Balance.HEALTH_DROP_CHANCE * (1.0 + stats.get_stat("luck") / 200.0)
+	if rng.randf() < bandage_odds:
+		drop_pickup(at, Balance.HEALTH_DROP_AMOUNT, Pickup.KIND_HEALTH)
+	# A steady trickle as well, so a long clean wave still repays the player
+	# when no bandage happens to roll.
+	if kills % Balance.HEAL_EVERY_KILLS == 0 and is_instance_valid(player):
+		player.heal(Balance.HEAL_ON_KILLS)
+
+func drop_pickup(at: Vector2, amount: int, kind: String) -> void:
 	var pickup: Pickup = PICKUP_SCENE.instantiate()
-	pickup.setup(at, material_value)
+	pickup.setup(at, amount, kind)
 	pickup.collected.connect(on_pickup_collected)
 	# This runs inside the projectile collision callback, and the physics
 	# server refuses to have an Area2D added while it is flushing queries.
@@ -332,7 +345,11 @@ func on_magnet_touched(area: Area2D) -> void:
 
 # Materials are both the shop currency and the level track, as in Brotato:
 # one pickup pays into each.
-func on_pickup_collected(value: int) -> void:
+func on_pickup_collected(value: int, kind: String = Pickup.KIND_MATERIAL) -> void:
+	if kind == Pickup.KIND_HEALTH:
+		if is_instance_valid(player): player.heal(float(value))
+		audio.play_tone(520.0, 0.10)
+		return
 	materials += value
 	xp += value
 	audio.play_tone(740.0, 0.04)
@@ -350,12 +367,25 @@ func choose_upgrade(index: int) -> void:
 func dash() -> void:
 	if is_instance_valid(player) and player.dash(): audio.play_tone(820.0, 0.09)
 
+# Rift Nova: a shockwave that damages and throws everything around the player.
+# The visual is a separate node so the ring can outlive the frame the damage
+# lands on, which is what makes it read as an attack rather than a stat tick.
 func rift_nova() -> void:
 	if nova_cooldown > 0.0 or not is_instance_valid(player): return
-	var punch := 26.0 * stats.damage_multiplier()
+	var punch := Balance.NOVA_DAMAGE * stats.damage_multiplier()
+	var reach := Balance.NOVA_RADIUS
+	var blast: NovaBlast = NOVA_SCENE.instantiate()
+	blast.position = player.position
+	blast.radius = reach
+	add_child(blast)
 	for node in actors.get_children():
 		var enemy := node as Enemy
-		if enemy != null and enemy.position.distance_to(player.position) < 175.0:
-			enemy.take_damage(punch)
-	nova_cooldown = 9.0
-	audio.play_tone(260.0, 0.28)
+		if enemy == null: continue
+		var offset: Vector2 = enemy.position - player.position
+		if offset.length() > reach: continue
+		# Closer enemies take the full hit and are thrown hardest.
+		var falloff: float = 1.0 - clampf(offset.length() / reach, 0.0, 1.0) * 0.55
+		enemy.push(offset, Balance.NOVA_KNOCKBACK * falloff)
+		enemy.take_damage(punch * falloff)
+	nova_cooldown = Balance.NOVA_COOLDOWN
+	audio.play_tone(150.0, 0.35)

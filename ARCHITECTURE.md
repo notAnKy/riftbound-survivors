@@ -45,6 +45,21 @@ The UI still reads the player vitals as `session.player_hp` and friends, but
 those are now **property getters that forward to the player node** rather than
 copies that could drift out of sync.
 
+## Screen and arena
+
+The game runs at **1920x1080** with `stretch/mode = canvas_items` and
+`aspect = keep`, so it letterboxes rather than distorting on other displays.
+
+**`GameUI.SCREEN` is the one source of screen size** and every menu rectangle
+comes from a helper (`menu_button_rect`, `card_rect`, `slot_rect`, ...) that
+`menu_action_at` hit-tests against the same helper. Nothing in the UI should
+carry a raw 1920 or 1080.
+
+**`Arena.BOUNDS` is the one source of arena size.** The floor sprite is
+stretched to it in `arena.gd::_ready` rather than in the `.tscn`, because a
+`region_rect` authored in the scene silently kept covering the old rectangle
+when the arena grew and left most of the field bare.
+
 ## The run loop
 
 A wave ends into the **shop**, not a timer. `finish_wave()` sets
@@ -56,6 +71,17 @@ fight.
 **Materials are both the currency and the level track.** One pickup pays into
 each, so choosing to chase a drop is simultaneously an XP and a shopping
 decision.
+
+Healing comes from two places on purpose: a **bandage** that rolls on some
+kills (nudged by Luck, so the stat pays off outside the shop too) and a flat
+heal **every `HEAL_EVERY_KILLS` kills**, so a long clean wave still repays the
+player when no bandage happens to drop.
+
+**Rift Nova** damages and knocks back everything within `NOVA_RADIUS`, with
+falloff by distance. The ring is a separate `NovaBlast` node rather than
+something drawn inside the session, so the visual can outlive the single frame
+the damage lands on -- which is the whole difference between reading as an
+attack and reading as a silent stat tick.
 
 ### Stats
 

@@ -7,6 +7,10 @@ extends SceneTree
 var out_dir := "user://"
 
 func _initialize() -> void:
+	# Uncapped, this runs at several hundred fps and settle(n) covers a few
+	# milliseconds rather than n/60 of a second, so timed effects get captured
+	# in their first frame. Pin the rate so waits mean what they read.
+	Engine.max_fps = 60
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0: out_dir = args[0]
 	capture.call_deferred()
@@ -50,6 +54,18 @@ func capture() -> void:
 	s.begin_round()
 	await settle(90)
 	await shoot("04_boss")
+
+	# Rift Nova mid-blast, with a crowd to throw.
+	s.player.position = Arena.BOUNDS.get_center()
+	s.round_phase = "cleanup"
+	for i in range(16):
+		var spot: Vector2 = s.player.position + Vector2(randf_range(-260, 260), randf_range(-230, 230))
+		s.spawn_enemy(EnemyCatalog.all()[i % 3], spot, false)
+	await settle(12)
+	s.nova_cooldown = 0.0
+	s.rift_nova()
+	await settle(13)
+	await shoot("07_nova")
 
 	# The shop, with a purse worth spending and a couple of things owned.
 	s.materials = 46
