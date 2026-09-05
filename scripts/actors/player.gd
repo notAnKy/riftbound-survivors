@@ -7,33 +7,44 @@ const DASH_SPEED := 3.1
 const DASH_TIME := 0.16
 const DASH_COOLDOWN := 4.0
 const BODY_RADIUS := 13.0
+const BASE_PICKUP_RADIUS := 34.0
 
-var max_hp := 100.0
+# Everything derived lives on the sheet. The session hands one in at the start
+# of a run and then only ever adds to it, so an item bought in the shop changes
+# health, movement, weapons and survivability from a single place.
+var stats: Stats = Stats.new()
+var base_speed := 290.0
 var hp := 100.0
-var speed := 290.0
-var damage_mult := 1.0
-var pickup_radius := 34.0
 var dash_cooldown := 0.0
 var dash_time := 0.0
 var last_move := Vector2.RIGHT
 var hit_flash := 0.0
 var alive := true
 var tint := Color.WHITE
+var rng := RandomNumberGenerator.new()
+
+var max_hp: float:
+	get: return maxf(1.0, stats.get_stat("max_hp"))
+var speed: float:
+	get: return base_speed * stats.speed_multiplier()
 
 func _ready() -> void:
+	rng.randomize()
 	# A .tscn sub-resource is shared by every instance of that scene, so the
 	# radius has to be changed on a copy or it would leak to any other Player.
 	var shape: CollisionShape2D = $Magnet/Shape
 	shape.shape = shape.shape.duplicate()
-	apply_pickup_radius(pickup_radius)
+	refresh_pickup_radius()
 
-func apply_pickup_radius(value: float) -> void:
-	pickup_radius = value
-	($Magnet/Shape as CollisionShape2D).shape.radius = value
+func refresh_pickup_radius() -> void:
+	($Magnet/Shape as CollisionShape2D).shape.radius = BASE_PICKUP_RADIUS + stats.get_stat("pickup_radius")
 
 func _physics_process(delta: float) -> void:
 	dash_cooldown = maxf(0.0, dash_cooldown - delta)
 	hit_flash = maxf(0.0, hit_flash - delta)
+	if alive:
+		var regen := stats.get_stat("hp_regen")
+		if regen > 0.0: hp = minf(max_hp, hp + regen * delta)
 	($Sprite as Sprite2D).modulate = Color(2.2, 0.8, 0.8) if hit_flash > 0.0 else tint
 	var direction := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if direction != Vector2.ZERO: last_move = direction
@@ -60,11 +71,12 @@ func dash() -> bool:
 	return true
 
 func heal(amount: float) -> void:
-	hp = minf(max_hp, hp + amount)
+	if alive: hp = minf(max_hp, hp + amount)
 
 func hurt(amount: float) -> void:
 	if not alive: return
-	hp = maxf(0.0, hp - amount)
+	if stats.dodges(rng): return
+	hp = maxf(0.0, hp - stats.damage_taken(amount))
 	hit_flash = 0.1
 	# `alive` is the latch: every damage source funnels through here, so the
 	# run can only end once no matter how many enemies land a blow this frame.

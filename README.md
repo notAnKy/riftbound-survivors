@@ -12,17 +12,30 @@ An original Godot 4 arena-survival prototype where sci-fi drones, fantasy rifts,
 
 - **WASD** or arrow keys: move
 - Weapons fire automatically at the nearest enemy.
-- **1**, **2**, or **3**: choose a level-up evolution.
+- **1**-**4**: choose a level-up evolution, or buy that slot in the shop.
+- **R**: reroll the shop. **Space**: start the next wave.
 - **Q**: Rift Dash (short cooldown).
 - **E**: Rift Nova (area damage, longer cooldown).
 - **Escape**: pause; press **S** from the title screen or pause menu for settings.
 - **Space**: start another run after dying.
 
+## The loop
+
+Each wave is a timed fight. Clear it and the **shop** opens: spend the materials
+you picked up on weapons and passive items, reroll the board if you dislike it,
+sell anything you have outgrown, then head back in. Materials are both the shop
+currency and your XP, so every pickup counts twice.
+
+You can carry **six weapons at once**, each firing on its own cooldown at its
+own target. Buy three of the same weapon at the same tier and they **merge into
+the next tier up**.
+
 ## Armaments
 
-- **Plasma Blaster**: rapid energy bolts.
-- **Rune Wand**: powerful piercing magic bolts.
-- **Void Shotgun**: five-projectile close-range blast.
+Plasma Pistol, Rune Wand, Void Shotgun, Splinter SMG, Arc Rifle, Rift Lance and
+Scrap Cannon, each in four tiers. Sixteen passive items feed a stat sheet
+covering damage, attack speed, crit, armor, dodge, speed, lifesteal, range,
+harvesting and luck.
 
 ## Current prototype
 

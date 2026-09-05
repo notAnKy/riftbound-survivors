@@ -1,6 +1,10 @@
 class_name Projectile
 extends Area2D
 
+# Reported so the session can pay lifesteal without the projectile needing a
+# reference back to the player.
+signal dealt_damage(amount: float)
+
 var velocity := Vector2.ZERO
 var damage := 10.0
 var pierce := 0
@@ -8,16 +12,19 @@ var life := 1.0
 var radius := 5.0
 var color := Color.WHITE
 var hostile := false
+var crit := false
 var already_hit: Array[Node] = []
 
-func launch(from: Vector2, direction: Vector2, shot_speed: float, shot_damage: float, shot_life: float, shot_color: Color, shot_pierce: int, is_hostile: bool) -> void:
-	global_position = from
+func launch(from: Vector2, direction: Vector2, shot_speed: float, shot_damage: float, shot_life: float, shot_color: Color, shot_pierce: int, is_hostile: bool, is_crit: bool = false) -> void:
+	position = from
 	velocity = direction.normalized() * shot_speed
 	damage = shot_damage
 	life = shot_life
 	color = shot_color
 	pierce = shot_pierce
 	hostile = is_hostile
+	crit = is_crit
+	radius = 7.0 if is_crit else 5.0
 	collision_layer = Layers.ENEMY_SHOT if is_hostile else Layers.PLAYER_SHOT
 	collision_mask = Layers.WORLD | (Layers.PLAYER if is_hostile else Layers.ENEMY)
 	queue_redraw()
@@ -39,9 +46,11 @@ func _on_body_entered(body: Node2D) -> void:
 	if body is Enemy and not already_hit.has(body):
 		already_hit.append(body)
 		body.take_damage(damage)
+		dealt_damage.emit(damage)
 		if pierce > 0: pierce -= 1
 		else: queue_free()
 
 func _draw() -> void:
 	draw_circle(Vector2.ZERO, radius + 2.0, Color(color.r, color.g, color.b, 0.25))
 	draw_circle(Vector2.ZERO, radius, color)
+	if crit: draw_arc(Vector2.ZERO, radius + 3.0, 0.0, TAU, 12, Color(1, 1, 1, 0.8), 1.5)

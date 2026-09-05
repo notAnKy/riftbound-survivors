@@ -11,11 +11,13 @@ gone. What is left of the old shape is the state machine and the menu drawing.
 - `scenes/Arena.tscn`: tiled floor, wall bodies, decorative trim.
 - `scenes/actors/`: `Player`, `Enemy`, `Projectile`, `Pickup`.
 - `scripts/game/game_session.gd`: wave clock, spawning, weapons, wiring.
+- `scripts/game/weapon.gd`: one equipped weapon; every number comes from Stats.
+- `scripts/game/shop.gd`: the between-wave board, pure data and testable alone.
 - `scripts/game/arena.gd` / `arena_trim.gd`: bounds, walls, border and rifts.
 - `scripts/actors/`: one script per actor scene.
 - `scripts/ui/game_ui.gd`: menus, HUD, upgrade overlay.
-- `scripts/data/`: gun, character, upgrade and enemy catalogs, plus
-  `balance.gd` -- every number the difficulty curve depends on.
+- `scripts/data/`: gun, character, upgrade, enemy, weapon and item catalogs,
+  plus `stats.gd` (the character sheet) and `balance.gd` (the curve).
 - `scripts/lib/layers.gd`: physics layer bits.
 - `scripts/save/profile_manager.gd`: persistent coins and unlocks.
 - `assets/sprites/`: the sprites the game loads, cut from the Kenney pack in
@@ -42,6 +44,49 @@ walking and killing behind the pause and level-up overlays.
 The UI still reads the player vitals as `session.player_hp` and friends, but
 those are now **property getters that forward to the player node** rather than
 copies that could drift out of sync.
+
+## The run loop
+
+A wave ends into the **shop**, not a timer. `finish_wave()` sets
+`round_phase = "shop"` and emits `wave_cleared`; `main.gd` puts the app in the
+`shop` state, which pauses the tree like any other menu. `begin_round()` only
+runs when the player leaves. That is the whole Brotato shape: fight, spend,
+fight.
+
+**Materials are both the currency and the level track.** One pickup pays into
+each, so choosing to chase a drop is simultaneously an XP and a shopping
+decision.
+
+### Stats
+
+`Stats` is a flat dictionary of named modifiers plus the helpers that read it.
+Percent stats are stored as whole points (`damage = 25` means +25%), and
+nothing outside `stats.gd` should be dividing by 100.
+
+Two shapes are deliberate:
+
+- **Armor uses `1 - armor / (armor + 30)`.** Flat reduction goes negative and
+  percentage reduction reaches immunity; this approaches 100% without ever
+  arriving. 30 armor is exactly half.
+- **Dodge is capped at 60%**, because it is a reroll on every hit and an
+  uncapped version makes a run unloseable rather than merely strong.
+
+Everything downstream reads the sheet, so one item bought in the shop changes
+health, movement, all six weapons and survivability at once.
+
+### Weapons
+
+Up to `GameSession.MAX_WEAPONS` (6). **Each has its own cooldown and picks its
+own target inside its own reach**, so a short-range shotgun and a long rifle
+behave differently on the same frame instead of sharing one timer.
+
+Weapons are authored once at tier 1 and scaled: tier multiplies damage by
+`TIER_DAMAGE` and shortens the cooldown by `TIER_COOLDOWN`. **Three of the same
+weapon at the same tier merge into one of the next tier**, which is why a full
+rack does not block a purchase that would combine -- see `would_combine`.
+
+Projectile lifetime is derived from reach rather than authored, so the range
+printed on a shop card is the range actually fired, Range stat included.
 
 ## Physics
 
@@ -93,7 +138,14 @@ Both are headless Godot scripts, run from the project root:
 - `tests/integration_test.gd` boots the real scene and asserts against it:
   spawning inside the walls, crowd separation, walls containing the player
   (driven with real `Input.action_press`), projectile damage, pickup collection,
-  single `run_ended` on death, boss rounds, and profile sanitizing.
+  single `run_ended` on death, the pause actually pausing, boss rounds, shop
+  transactions, weapon combining and rack limits, multi-weapon output, the stat
+  formulas, and profile sanitizing.
+
+  It ends by asserting `EXPECTED_CHECKS` assertions ran. **A GDScript runtime
+  error aborts only the function it happens in**, so a broken test simply stops
+  asserting and the suite still reads as green -- which it did, for three tests
+  at once, until this was added. Update the constant when adding assertions.
 - `tests/screenshot.gd` plays a short run and writes frames to a directory, so a
   visual change can be checked without sitting at the game. Needs a real
   (non-headless) run because it reads the viewport texture.

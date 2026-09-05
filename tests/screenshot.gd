@@ -47,9 +47,24 @@ func capture() -> void:
 	# Jump to a boss round to catch the big sprite on screen.
 	var s = game.session
 	s.round_number = 4
-	s.round_phase = "intermission"
-	s.intermission_left = 0.0
 	s.begin_round()
 	await settle(90)
 	await shoot("04_boss")
+
+	# The shop, with a purse worth spending and a couple of things owned.
+	s.materials = 46
+	s.add_weapon("smg", 1)
+	s.add_weapon("rifle", 2)
+	s.add_item("focus_lens")
+	s.add_item("scrap_plate")
+	s.finish_wave()
+	game.state = "shop"
+	await settle(4)
+	await shoot("05_shop")
+
+	# Level-up overlay, four choices.
+	s.upgrades = UpgradeCatalog.roll_choices(s.rng, 6, 0.0)
+	game.state = "level_up"
+	await settle(4)
+	await shoot("06_level_up")
 	quit(0)

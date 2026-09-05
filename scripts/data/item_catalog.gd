@@ -1,0 +1,68 @@
+class_name ItemCatalog
+extends RefCounted
+
+# Passive items. `stats` is applied straight into the player Stats when bought
+# and never removed, so anything here has to be an additive modifier.
+# `min_round` gates the stronger items out of the first shop.
+static func all() -> Array[Dictionary]:
+	return [
+		{"id":"scrap_plate", "name":"SCRAP PLATE", "price":14, "min_round":1,
+			"stats":{"armor":4.0}, "color":Color("b6c6e8")},
+		{"id":"focus_lens", "name":"FOCUS LENS", "price":16, "min_round":1,
+			"stats":{"damage":8.0}, "color":Color("ff8d6d")},
+		{"id":"coil_spring", "name":"COIL SPRING", "price":13, "min_round":1,
+			"stats":{"speed":8.0}, "color":Color("8cffd1")},
+		{"id":"hair_trigger", "name":"HAIR TRIGGER", "price":18, "min_round":1,
+			"stats":{"attack_speed":10.0}, "color":Color("ffd166")},
+		{"id":"ration_pack", "name":"RATION PACK", "price":12, "min_round":1,
+			"stats":{"max_hp":18.0}, "color":Color("69f4d4")},
+		{"id":"magnet_core", "name":"MAGNET CORE", "price":11, "min_round":1,
+			"stats":{"pickup_radius":30.0}, "color":Color("8cffd1")},
+		{"id":"honed_edge", "name":"HONED EDGE", "price":20, "min_round":2,
+			"stats":{"crit_chance":6.0}, "color":Color("ffcf77")},
+		{"id":"long_barrel", "name":"LONG BARREL", "price":17, "min_round":2,
+			"stats":{"attack_range":15.0}, "color":Color("82b7ff")},
+		{"id":"ghost_step", "name":"GHOST STEP", "price":22, "min_round":3,
+			"stats":{"dodge":6.0}, "color":Color("bf8cff")},
+		{"id":"leech_rune", "name":"LEECH RUNE", "price":24, "min_round":3,
+			"stats":{"lifesteal":4.0}, "color":Color("ff718b")},
+		{"id":"salvage_rig", "name":"SALVAGE RIG", "price":19, "min_round":3,
+			"stats":{"harvesting":4.0}, "color":Color("ffd166")},
+		{"id":"repair_field", "name":"REPAIR FIELD", "price":21, "min_round":4,
+			"stats":{"hp_regen":1.2}, "color":Color("69f4d4")},
+		{"id":"lucky_coin", "name":"LUCKY COIN", "price":15, "min_round":4,
+			"stats":{"luck":12.0}, "color":Color("ffe09b")},
+		{"id":"war_drum", "name":"WAR DRUM", "price":34, "min_round":5,
+			"stats":{"damage":14.0, "attack_speed":8.0, "max_hp":-10.0},
+			"color":Color("ff6d8d")},
+		{"id":"bulwark", "name":"BULWARK", "price":32, "min_round":5,
+			"stats":{"armor":9.0, "max_hp":25.0, "speed":-6.0},
+			"color":Color("b6c6e8")},
+		{"id":"overclock", "name":"OVERCLOCK", "price":36, "min_round":6,
+			"stats":{"attack_speed":22.0, "crit_chance":4.0, "armor":-4.0},
+			"color":Color("ffcc70")},
+	]
+
+static func get_item(id: String) -> Dictionary:
+	for def in all():
+		if def.id == id: return def
+	return all()[0]
+
+static func available(round_number: int) -> Array[Dictionary]:
+	return all().filter(func(def: Dictionary) -> bool:
+		return round_number >= int(def.min_round))
+
+# "+8% Damage, -10 Max HP" for the shop card and the item list.
+static func describe(def: Dictionary) -> String:
+	var parts: Array[String] = []
+	for key in def.stats:
+		var name := String(key)
+		var amount := float(def.stats[key])
+		var suffix := "%" if name in Stats.PERCENT else ""
+		var label: String = Stats.LABELS.get(name, name)
+		parts.append("%s%s%s %s" % ["+" if amount > 0.0 else "", _trim(amount), suffix, label])
+	return ", ".join(parts)
+
+static func _trim(amount: float) -> String:
+	if is_equal_approx(amount, round(amount)): return str(int(round(amount)))
+	return "%.1f" % amount

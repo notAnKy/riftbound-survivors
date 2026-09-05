@@ -1,6 +1,10 @@
 class_name GameController
 extends Node2D
 
+# States: title, armory, settings, playing, level_up, shop, paused,
+# settings_pause, game_over. Anything other than "playing" pauses the tree.
+const MOUSE_STATES := ["title", "armory", "shop"]
+
 @onready var session: GameSession = $GameSession
 @onready var audio: AudioSfx = $AudioSfx
 @onready var ui: GameUI = $GameUI
@@ -27,6 +31,7 @@ func _ready() -> void:
 	session.process_mode = Node.PROCESS_MODE_PAUSABLE
 	profile.load_profile()
 	session.level_up_requested.connect(func() -> void: state = "level_up")
+	session.wave_cleared.connect(func() -> void: state = "shop")
 	session.run_ended.connect(on_run_ended)
 	session.rift_effects_enabled = rift_effects_enabled
 
@@ -34,7 +39,7 @@ func _process(delta: float) -> void:
 	get_tree().paused = state != "playing"
 	if state == "playing":
 		session.tick(delta)
-	if state == "title" or state == "armory":
+	if state in MOUSE_STATES:
 		menu_hover = ui.menu_action_at(get_viewport().get_mouse_position())
 	ui.queue_redraw()
 
@@ -55,12 +60,24 @@ func on_run_ended() -> void:
 func open_settings() -> void:
 	state = "settings_pause" if state == "paused" else "settings"
 
+func leave_shop() -> void:
+	session.begin_round()
+	state = "playing"
+
 func handle_menu_action(action: String) -> void:
+	if action.begins_with("buy_"):
+		session.buy(int(action.trim_prefix("buy_")))
+		return
+	if action.begins_with("sell_"):
+		session.sell_weapon(int(action.trim_prefix("sell_")))
+		return
 	match action:
 		"play": start_run()
 		"armory": state = "armory"
 		"settings": state = "settings"
 		"back": state = "title"
+		"reroll": session.reroll_shop()
+		"go": leave_shop()
 		"quit": get_tree().quit()
 
 func toggle_sound() -> void:
@@ -72,7 +89,7 @@ func toggle_rift_effects() -> void:
 	session.rift_effects_enabled = rift_effects_enabled
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and (state == "title" or state == "armory"):
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and state in MOUSE_STATES:
 		handle_menu_action(ui.menu_action_at(event.position))
 		return
 	if not (event is InputEventKey and event.pressed and not event.echo): return
@@ -93,10 +110,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_ESCAPE: state = "playing"
 		elif event.keycode == KEY_S: open_settings()
 		elif event.keycode == KEY_Q: state = "title"
+	elif state == "shop":
+		if event.keycode >= KEY_1 and event.keycode <= KEY_4: session.buy(event.keycode - KEY_1)
+		elif event.keycode == KEY_R: session.reroll_shop()
+		elif event.keycode == KEY_SPACE or event.keycode == KEY_ENTER: leave_shop()
 	elif state == "level_up":
-		if event.keycode >= KEY_1 and event.keycode <= KEY_3:
-			session.choose_upgrade(event.keycode - KEY_1)
-			state = "playing"
+		if event.keycode >= KEY_1 and event.keycode <= KEY_4:
+			var choice: int = event.keycode - KEY_1
+			if choice < session.upgrades.size():
+				session.choose_upgrade(choice)
+				# A level can be gained during the shop, and returning to
+				# "playing" there would resume the wave with the shop skipped.
+				state = "shop" if session.round_phase == "shop" else "playing"
 	elif state == "game_over":
 		if event.keycode == KEY_SPACE: start_run()
 		elif event.keycode == KEY_ESCAPE: state = "title"

@@ -4,11 +4,14 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
+const EXPECTED_CHECKS := 56
+var checks := 0
 
 func _initialize() -> void:
 	bootstrap.call_deferred()
 
 func check(label: String, ok: bool) -> void:
+	checks += 1
 	print(("PASS  " if ok else "FAIL  ") + label)
 	if not ok: failures += 1
 
@@ -35,8 +38,20 @@ func bootstrap() -> void:
 	await test_death_ends_run_once()
 	await test_boss_rounds()
 	await test_pause_freezes_the_field()
+	await test_wave_clear_opens_shop()
+	await test_shop_buying()
+	await test_weapon_combining()
+	await test_weapon_rack_limit()
+	await test_multi_weapon_output()
+	await test_materials_are_currency_and_xp()
+	test_stat_math()
 	test_balance_curve()
 	test_profile_sanitizing()
+	# A GDScript runtime error aborts only the function it happened in, so a
+	# broken test just stops asserting and the suite still reads as green.
+	# Pin the count so that shows up as a failure.
+	var ran := checks
+	check("every assertion ran (%d of %d)" % [ran, EXPECTED_CHECKS], ran == EXPECTED_CHECKS)
 	print("FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)
 
@@ -151,8 +166,6 @@ func test_boss_rounds() -> void:
 	var s = game.session
 	var boss_rounds := []
 	for r in range(2, 13):
-		s.round_phase = "intermission"
-		s.intermission_left = 0.0
 		var before: int = s.actors.get_child_count()
 		s.begin_round()
 		if s.actors.get_child_count() > before: boss_rounds.append(s.round_number)
@@ -207,3 +220,142 @@ func test_balance_curve() -> void:
 		total += need
 		need = Balance.next_level_xp(need)
 	check("five levels cost a reachable amount of xp (%d)" % total, total < 200)
+
+# --- phase 2: stats, materials, weapons, shop --------------------------------
+
+func test_wave_clear_opens_shop() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	s.round_time_left = 0.0
+	s.round_phase = "cleanup"
+	await step(4)
+	check("clearing a wave opens the shop", s.round_phase == "shop" and game.state == "shop")
+	check("the shop rolled a full board (%d offers)" % s.shop.offers.size(), s.shop.offers.size() == Shop.SLOTS)
+	var wave_before: int = s.round_number
+	game.leave_shop()
+	check("leaving the shop starts the next wave (%d -> %d)" % [wave_before, s.round_number], s.round_number == wave_before + 1 and s.round_phase == "combat")
+	game.free()
+
+func test_shop_buying() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	s.finish_wave()
+	var lens: Dictionary = {"kind":"item", "id":"focus_lens", "tier":1, "name":"FOCUS LENS",
+		"text":"", "color":Color.WHITE, "price":10}
+	s.shop.offers[0] = lens
+	s.materials = 10
+	var before: float = s.stats.get_stat("damage")
+	check("an affordable offer can be bought", s.buy(0))
+	check("materials are spent (%d left)" % s.materials, s.materials == 0)
+	check("the item stat lands on the sheet (%.0f -> %.0f)" % [before, s.stats.get_stat("damage")], is_equal_approx(s.stats.get_stat("damage"), before + 8.0))
+	check("the slot is emptied", s.shop.offers[0].is_empty())
+	check("the same slot cannot be bought twice", not s.buy(0))
+	var plate: Dictionary = {"kind":"item", "id":"scrap_plate", "tier":1, "name":"SCRAP PLATE",
+		"text":"", "color":Color.WHITE, "price":999}
+	s.shop.offers[1] = plate
+	check("an unaffordable offer is refused", not s.buy(1))
+	var reroll_before: int = s.shop.reroll_cost()
+	s.materials = 100
+	s.reroll_shop()
+	check("rerolling costs more each time (%d -> %d)" % [reroll_before, s.shop.reroll_cost()], s.shop.reroll_cost() > reroll_before)
+	check("rerolling refills the board", s.shop.offers.size() == Shop.SLOTS and not s.shop.offers[0].is_empty())
+	game.free()
+
+func test_weapon_combining() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	var rack: Array[Weapon] = [Weapon.new("smg", 1)]
+	s.weapons = rack
+	s.add_weapon("smg", 1)
+	check("two of a kind stay separate (%d)" % s.weapons.size(), s.weapons.size() == 2)
+	s.add_weapon("smg", 1)
+	check("three of a kind merge into one (%d)" % s.weapons.size(), s.weapons.size() == 1)
+	check("the merged weapon is a tier higher (tier %d)" % s.weapons[0].tier, s.weapons[0].tier == 2)
+	check("the merged weapon hits harder (%.0f vs %.0f)" % [WeaponCatalog.damage_at("smg", 2), WeaponCatalog.damage_at("smg", 1)], WeaponCatalog.damage_at("smg", 2) > WeaponCatalog.damage_at("smg", 1))
+	game.free()
+
+func test_weapon_rack_limit() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	s.finish_wave()
+	var rack: Array[Weapon] = []
+	for def in WeaponCatalog.all().slice(0, GameSession.MAX_WEAPONS):
+		rack.append(Weapon.new(String(def.id), 1))
+	s.weapons = rack
+	s.materials = 500
+	var lance: Dictionary = {"kind":"weapon", "id":"lance", "tier":1, "name":"x", "text":"",
+		"color":Color.WHITE, "price":1}
+	s.shop.offers[0] = lance
+	check("a full rack refuses a seventh weapon", not s.buy(0))
+	# but a third copy of one already held merges, so it is allowed through
+	s.weapons[1] = Weapon.new("pistol", 1)
+	var extra: Dictionary = {"kind":"weapon", "id":"pistol", "tier":1, "name":"x", "text":"",
+		"color":Color.WHITE, "price":1}
+	s.shop.offers[1] = extra
+	check("a full rack still accepts a merge", s.buy(1))
+	check("and the merge shrank the rack (%d)" % s.weapons.size(), s.weapons.size() < GameSession.MAX_WEAPONS)
+	game.free()
+
+func shots_fired_over(s, frames: int) -> int:
+	var count := [0]
+	var counter := func(_node: Node) -> void: count[0] += 1
+	s.shots.child_entered_tree.connect(counter)
+	await step(frames)
+	s.shots.child_entered_tree.disconnect(counter)
+	return count[0]
+
+# Each weapon runs its own cooldown, so three of them must actually produce
+# more fire than one rather than sharing a single timer.
+func test_multi_weapon_output() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	s.round_phase = "cleanup"
+	var dummy = s.spawn_enemy(EnemyCatalog.all()[3], s.player.position + Vector2(120, 0), false)
+	dummy.max_hp = 1000000.0
+	dummy.hp = dummy.max_hp
+	var single: Array[Weapon] = [Weapon.new("pistol", 1)]
+	s.weapons = single
+	var one: int = await shots_fired_over(s, 90)
+	var trio: Array[Weapon] = [Weapon.new("pistol", 1), Weapon.new("pistol", 1), Weapon.new("pistol", 1)]
+	s.weapons = trio
+	var three: int = await shots_fired_over(s, 90)
+	check("three weapons out-shoot one (%d vs %d)" % [three, one], one > 0 and three > one * 2)
+	game.free()
+
+func test_materials_are_currency_and_xp() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	var materials_before: int = s.materials
+	var xp_before: int = s.xp
+	s.on_pickup_collected(5)
+	check("a pickup pays into the purse (%d -> %d)" % [materials_before, s.materials], s.materials == materials_before + 5)
+	check("and into the level track (%d -> %d)" % [xp_before, s.xp], s.xp == xp_before + 5 or s.level > 1)
+	game.free()
+
+func test_stat_math() -> void:
+	var stats := Stats.new()
+	check("no armor takes full damage", is_equal_approx(stats.damage_taken(100.0), 100.0))
+	stats.add("armor", 30.0)
+	check("30 armor halves incoming damage (%.1f)" % stats.damage_taken(100.0), is_equal_approx(stats.damage_taken(100.0), 50.0))
+	stats.add("armor", 9970.0)
+	check("stacked armor never reaches immunity (%.3f)" % stats.damage_taken(100.0), stats.damage_taken(100.0) > 0.0)
+	var offence := Stats.new()
+	offence.add("damage", 50.0)
+	check("damage percent multiplies (%.2f)" % offence.damage_multiplier(), is_equal_approx(offence.damage_multiplier(), 1.5))
+	offence.add("attack_speed", 100.0)
+	var weapon := Weapon.new("pistol", 1)
+	check("attack speed halves the cooldown (%.3f)" % weapon.cooldown(offence), is_equal_approx(weapon.cooldown(offence), WeaponCatalog.cooldown_at("pistol", 1) / 2.0))
+	var dodgy := Stats.new()
+	dodgy.add("dodge", 500.0)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var dodged := 0
+	for i in range(400):
+		if dodgy.dodges(rng): dodged += 1
+	check("dodge is capped well below certainty (%d/400)" % dodged, dodged > 180 and dodged < 290)
