@@ -69,6 +69,15 @@ func configure(def: Dictionary, round_number: int, target: Player, boss: bool = 
 	shape.shape.radius = radius
 	queue_redraw()
 
+# Applied after configure, so the danger ladder scales whatever the round curve
+# and the elite roll already produced rather than fighting with them.
+func apply_danger(danger: int) -> void:
+	if danger <= 0: return
+	max_hp *= Balance.danger_hp(danger)
+	hp = max_hp
+	speed *= Balance.danger_speed(danger)
+	material_value = int(ceil(float(material_value) * Balance.danger_materials(danger)))
+
 func _physics_process(delta: float) -> void:
 	if not alive or player == null or not is_instance_valid(player): return
 	age += delta

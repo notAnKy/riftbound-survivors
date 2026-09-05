@@ -23,6 +23,13 @@ An original Godot 4 arena-survival prototype where sci-fi drones, fantasy rifts,
 
 ## The loop
 
+A run is **twenty waves**. Clear the last one and you win, which opens the
+next **danger level** — six rungs of a ladder, each with tougher enemies and
+richer material drops. Pick your danger in the Armory before you start.
+
+Win or die, you get a **run summary**: the wave you reached, your weapons,
+your items and your final stat sheet.
+
 Each wave is a timed fight. Clear it and the **shop** opens: spend the materials
 you picked up on weapons and passive items, reroll the board if you dislike it,
 sell anything you have outgrown, then head back in. Materials are both the shop

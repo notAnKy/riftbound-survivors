@@ -39,6 +39,10 @@ func capture() -> void:
 	var game = load("res://Main.tscn").instantiate()
 	root.add_child(game)
 	await settle(4)
+	# Never let a capture run top up the real profile.
+	game.profile.persist = false
+	game.profile.data.max_danger = 3
+	game.danger = 2
 	await shoot("01_title")
 
 	game.state = "settings"
@@ -105,6 +109,20 @@ func capture() -> void:
 	game.state = "shop"
 	await settle(4)
 	await shoot("05_shop")
+
+	# Victory, with a full run summary.
+	s.round_number = Balance.FINAL_WAVE
+	s.kills = 431
+	s.run_time = 742.0
+	s.level = 17
+	s.add_item("honed_edge")
+	s.add_item("ghost_step")
+	s.add_item("war_drum")
+	s.add_weapon("lance", 3)
+	game.last_reward = 210
+	game.state = "victory"
+	await settle(4)
+	await shoot("10_victory")
 
 	# Level-up overlay, four choices.
 	s.upgrades = UpgradeCatalog.roll_choices(s.rng, 6, 0.0)

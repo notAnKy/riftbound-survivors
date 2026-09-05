@@ -88,6 +88,21 @@ when the arena grew and left most of the field bare.
 
 ## The run loop
 
+A run is `Balance.FINAL_WAVE` waves long. Clearing the last one sets
+`round_phase = "won"` and emits `run_won`, which is a different signal from
+`wave_cleared` precisely so the shop is not opened on the final wave. Both the
+victory and death screens draw the same `draw_run_summary`, because a bare
+number says nothing about the build that produced it.
+
+**Danger levels are applied after `configure`, not inside it** — `apply_danger`
+scales whatever the round curve and the elite roll already produced, rather
+than being a fourth thing fighting over the same numbers. Beating a level
+unlocks the next and only ever moves upward.
+
+**`ProfileManager.persist` must be false in any harness.** A run that ends
+awards coins and saves; the suite drives real runs, so with it left on every
+test pass quietly topped up the player's real profile.
+
 A wave ends into the **shop**, not a timer. `finish_wave()` sets
 `round_phase = "shop"` and emits `wave_cleared`; `main.gd` puts the app in the
 `shop` state, which pauses the tree like any other menu. `begin_round()` only
@@ -139,6 +154,20 @@ rack does not block a purchase that would combine -- see `would_combine`.
 
 Projectile lifetime is derived from reach rather than authored, so the range
 printed on a shop card is the range actually fired, Range stat included.
+
+## Icons
+
+Weapon and item icons are **drawn, not imported** (`scripts/ui/icons.gd`).
+The UI is immediate-mode anyway, the Kenney pack has no inventory art, and a
+drawn glyph takes each weapon's colour for free and stays sharp at any size.
+Every shape is authored in a -1..1 box and multiplied by a `size`, so one
+definition serves the shop card, the weapon rack, the HUD chip and the run
+summary.
+
+**`draw_colored_polygon` needs a *simple* polygon.** Concave is fine,
+self-intersecting is not: the lance icon's spear head wound back across itself
+and every draw printed `Invalid polygon data, triangulation failed`. Split a
+shape like that into triangles rather than trying to trace it in one loop.
 
 ## Feel
 

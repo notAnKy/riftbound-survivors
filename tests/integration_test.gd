@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 103
+const EXPECTED_CHECKS := 121
 var checks := 0
 
 func _initialize() -> void:
@@ -23,6 +23,7 @@ func fresh_game() -> Node:
 	var game = load("res://Main.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
+	game.profile.persist = false
 	game.state = "playing"
 	game.start_run()
 	await step(2)
@@ -52,6 +53,9 @@ func bootstrap() -> void:
 	await test_damage_numbers()
 	await test_elites()
 	await test_shake_and_hitstop()
+	await test_victory_ends_the_run()
+	await test_danger_levels()
+	test_profile_persistence()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -459,6 +463,7 @@ func test_menu_navigation() -> void:
 	var game = load("res://Main.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
+	game.profile.persist = false
 
 	game.state = "settings"
 	check("a screen opens on its first row", game.menu_index == 0)
@@ -589,3 +594,67 @@ func test_shake_and_hitstop() -> void:
 	check("and time is restored afterwards (%.2f)" % Engine.time_scale, is_equal_approx(Engine.time_scale, 1.0))
 	Engine.time_scale = 1.0
 	game.free()
+
+# --- phase 4: the run has an end ---------------------------------------------
+
+func test_victory_ends_the_run() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	s.round_number = Balance.FINAL_WAVE
+	s.round_time_left = 0.0
+	s.round_phase = "cleanup"
+	await step(4)
+	check("clearing the final wave wins the run", s.round_phase == "won" and game.state == "victory")
+	check("winning pays a reward (%d coins)" % game.last_reward, game.last_reward > 0)
+	# and it must not roll on into wave 21
+	var wave: int = s.round_number
+	await step(30)
+	check("the wave clock stops once won (%d)" % s.round_number, s.round_number == wave and s.actors.get_child_count() == 0)
+	game.free()
+
+func test_danger_levels() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	s.round_phase = "cleanup"
+	s.round_number = 5
+	s.danger = 0
+	var calm = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(400, 0), false)
+	s.danger = Balance.DANGER_LEVELS - 1
+	var deadly = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(500, 0), false)
+	await step(1)
+	check("danger 0 changes nothing", is_equal_approx(Balance.danger_hp(0), 1.0) and is_equal_approx(Balance.danger_speed(0), 1.0))
+	check("higher danger means tougher enemies (%.0f vs %.0f hp)" % [deadly.max_hp, calm.max_hp], deadly.max_hp > calm.max_hp)
+	check("and pays more materials (%d vs %d)" % [deadly.material_value, calm.material_value], deadly.material_value > calm.material_value)
+	check("and spawns them faster", Balance.danger_spawn(5) < Balance.danger_spawn(0))
+	# the ladder: you can only pick what you have unlocked
+	game.profile.data.max_danger = 2
+	game.set_danger(5)
+	check("danger is clamped to what is unlocked (%d)" % game.danger, game.danger == 2)
+	game.set_danger(-3)
+	check("and cannot go below zero (%d)" % game.danger, game.danger == 0)
+	game.free()
+
+func test_profile_persistence() -> void:
+	var profile := ProfileManager.new()
+	profile.persist = false
+	check("settings default on", profile.setting("sound") and profile.setting("rift_effects"))
+	profile.set_setting("sound", false)
+	check("a setting sticks in memory", not profile.setting("sound"))
+	var reloaded := profile.sanitized({"coins": 5, "sound": false, "fullscreen": true, "max_danger": 3})
+	check("settings survive a round trip", reloaded.sound == false and reloaded.fullscreen == true)
+	check("max_danger survives (%s)" % reloaded.max_danger, reloaded.max_danger == 3)
+	var junk := profile.sanitized({"sound": "yes", "max_danger": 99})
+	check("a junk setting falls back to the default", junk.sound == true)
+	check("and max_danger is clamped (%s)" % junk.max_danger, junk.max_danger == Balance.DANGER_LEVELS - 1)
+	# winning opens the next rung, and only ever upward
+	var ladder := ProfileManager.new()
+	ladder.persist = false
+	check("winning at 0 unlocks 1", ladder.record_victory(0) and ladder.max_danger() == 1)
+	check("winning at 0 again changes nothing", not ladder.record_victory(0) and ladder.max_danger() == 1)
+	check("winning at 1 unlocks 2", ladder.record_victory(1) and ladder.max_danger() == 2)

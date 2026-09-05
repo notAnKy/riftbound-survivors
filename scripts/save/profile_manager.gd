@@ -2,7 +2,22 @@ class_name ProfileManager
 extends RefCounted
 
 const SAVE_PATH := "user://riftbound_profile.json"
-var data: Dictionary = {"coins":0, "unlocked_guns":[0], "unlocked_characters":[0]}
+
+const DEFAULTS := {
+	"coins": 0,
+	"unlocked_guns": [0],
+	"unlocked_characters": [0],
+	"max_danger": 0,
+	"sound": true,
+	"rift_effects": true,
+	"fullscreen": false,
+}
+
+var data: Dictionary = DEFAULTS.duplicate(true)
+# The test suite drives real runs, and a run that ends awards coins and saves.
+# Left on, that silently tops up the player real profile every time the suite
+# runs. Harnesses turn this off.
+var persist := true
 
 func load_profile() -> void:
 	if not FileAccess.file_exists(SAVE_PATH): return
@@ -16,11 +31,16 @@ func load_profile() -> void:
 # them before the title screen ever draws. Rebuild a known-good dictionary
 # instead of trusting what was parsed.
 func sanitized(parsed: Dictionary) -> Dictionary:
-	var clean := {"coins":0, "unlocked_guns":[0], "unlocked_characters":[0]}
+	var clean := DEFAULTS.duplicate(true)
 	var coins_value = parsed.get("coins")
 	if coins_value is float or coins_value is int: clean.coins = maxi(0, int(coins_value))
+	var danger_value = parsed.get("max_danger")
+	if danger_value is float or danger_value is int:
+		clean.max_danger = clampi(int(danger_value), 0, Balance.DANGER_LEVELS - 1)
 	clean.unlocked_guns = sanitized_unlocks(parsed.get("unlocked_guns"), GunCatalog.all().size())
 	clean.unlocked_characters = sanitized_unlocks(parsed.get("unlocked_characters"), CharacterCatalog.all().size())
+	for flag in ["sound", "rift_effects", "fullscreen"]:
+		if parsed.get(flag) is bool: clean[flag] = parsed[flag]
 	return clean
 
 func sanitized_unlocks(raw, count: int) -> Array:
@@ -33,6 +53,7 @@ func sanitized_unlocks(raw, count: int) -> Array:
 	return indices
 
 func save_profile() -> void:
+	if not persist: return
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null: return
 	file.store_string(JSON.stringify(data))
@@ -65,3 +86,25 @@ func unlock_character(index: int, cost: int) -> bool:
 	data.unlocked_characters.append(index)
 	save_profile()
 	return true
+
+# --- danger levels -----------------------------------------------------------
+
+func max_danger() -> int:
+	return int(data.max_danger)
+
+# Winning at a danger level opens the next one, and only ever moves upward.
+func record_victory(danger: int) -> bool:
+	var next := clampi(danger + 1, 0, Balance.DANGER_LEVELS - 1)
+	if next <= max_danger(): return false
+	data.max_danger = next
+	save_profile()
+	return true
+
+# --- settings ----------------------------------------------------------------
+
+func setting(name: String) -> bool:
+	return bool(data.get(name, DEFAULTS[name]))
+
+func set_setting(name: String, value: bool) -> void:
+	data[name] = value
+	save_profile()

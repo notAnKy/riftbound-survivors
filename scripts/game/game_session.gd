@@ -4,6 +4,7 @@ extends Node2D
 signal level_up_requested
 signal run_ended
 signal wave_cleared
+signal run_won
 
 const PLAYER_SCENE := preload("res://scenes/actors/Player.tscn")
 const ENEMY_SCENE := preload("res://scenes/actors/Enemy.tscn")
@@ -39,6 +40,7 @@ var round_length := 40.0
 var round_time_left := 40.0
 var round_phase := "combat"
 var selected_gun := 0
+var danger := 0
 var nova_cooldown := 0.0
 var shake := 0.0
 var hitstop_until := 0
@@ -137,14 +139,19 @@ func tick(delta: float) -> void:
 	run_time += delta
 	nova_cooldown = maxf(0.0, nova_cooldown - delta)
 	aim_player()
-	if round_phase == "shop": return
+	if round_phase == "shop" or round_phase == "won": return
 	if round_phase == "combat":
 		round_time_left = maxf(0.0, round_time_left - delta)
 		spawn_enemies(delta)
 		if round_time_left <= 0.0: round_phase = "cleanup"
 	fire_weapons(delta)
 	if round_phase == "cleanup" and actors.get_child_count() == 0:
-		finish_wave()
+		if round_number >= Balance.FINAL_WAVE:
+			round_phase = "won"
+			audio.play_tone(1180.0, 0.5)
+			run_won.emit()
+		else:
+			finish_wave()
 
 # The wave ends into the shop rather than a timer, which is where a run
 # actually gets built. begin_round is only reached when the player leaves it.
@@ -249,7 +256,7 @@ func apply_stat_gain(mods: Dictionary) -> void:
 func spawn_enemies(delta: float) -> void:
 	spawn_timer -= delta
 	if spawn_timer > 0.0: return
-	spawn_timer = maxf(Balance.SPAWN_INTERVAL_MIN, Balance.SPAWN_INTERVAL / Balance.intensity(round_number))
+	spawn_timer = maxf(Balance.SPAWN_INTERVAL_MIN, Balance.SPAWN_INTERVAL / Balance.intensity(round_number) * Balance.danger_spawn(danger))
 	var options := EnemyCatalog.available(round_number)
 	var elite_odds := Balance.elite_chance(round_number)
 	for count in range(1 + int(round_number / 4)):
@@ -276,6 +283,7 @@ func spawn_enemy(def: Dictionary, at: Vector2, is_boss: bool, is_elite: bool = f
 	enemy.position = at
 	actors.add_child(enemy)
 	enemy.configure(def, round_number, player, is_boss, is_elite)
+	enemy.apply_danger(danger)
 	enemy.died.connect(on_enemy_died)
 	enemy.damaged.connect(on_enemy_damaged)
 	enemy.wants_shot.connect(on_enemy_shot)

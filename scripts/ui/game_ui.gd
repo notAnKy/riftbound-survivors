@@ -40,14 +40,15 @@ func _draw() -> void:
 	elif game.state == "armory": draw_armory()
 	elif game.state == "settings": draw_settings("SETTINGS", "ESC: back to title")
 	else:
-		# The shop is a full screen with its own header, so the combat HUD
-		# under it would just show doubled numbers through the overlay.
-		if game.state != "shop": draw_hud()
+		# These three are full screens with their own headers and panels, so the
+		# combat HUD under them just shows doubled numbers through the overlay.
+		if not (game.state in ["shop", "victory", "game_over"]): draw_hud()
 		if game.state == "level_up": draw_upgrades()
 		elif game.state == "shop": draw_shop()
 		elif game.state == "paused": draw_pause()
 		elif game.state == "settings_pause": draw_settings("PAUSE SETTINGS", "ESC: back to pause")
 		elif game.state == "game_over": draw_game_over()
+		elif game.state == "victory": draw_victory()
 
 # --- layout ------------------------------------------------------------------
 
@@ -82,6 +83,9 @@ func go_rect() -> Rect2:
 func menu_button_rect(index: int) -> Rect2:
 	return Rect2(Vector2((SCREEN.x - MENU_BUTTON.x) * 0.5, MENU_TOP + index * MENU_STEP), MENU_BUTTON)
 
+func danger_rect(index: int) -> Rect2:
+	return row_rect(index, Balance.DANGER_LEVELS, Vector2(80, 46), 776.0, 12.0)
+
 func armory_back_rect() -> Rect2:
 	return Rect2(60, 60, 170, 52)
 
@@ -106,8 +110,10 @@ func menu_action_at(point: Vector2) -> String:
 		var actions := ["play", "armory", "settings", "quit"]
 		for i in range(actions.size()):
 			if menu_button_rect(i).has_point(point): return actions[i]
-	elif game.state == "armory" and armory_back_rect().has_point(point):
-		return "back"
+	elif game.state == "armory":
+		if armory_back_rect().has_point(point): return "back"
+		for i in range(Balance.DANGER_LEVELS):
+			if danger_rect(i).has_point(point): return "danger_%d" % i
 	elif game.state == "settings" or game.state == "settings_pause":
 		var rows := ["sound", "rift", "fullscreen", "back"]
 		for i in range(rows.size()):
@@ -167,7 +173,15 @@ func draw_armory() -> void:
 	var perks := ItemCatalog.describe(character)
 	text_at(panel.position + Vector2(40, 122), perks if perks != "" else "No stat modifiers", 15, Color("9fb3d9"))
 	text_right(panel.end.x - 40, panel.position.y + 122, "READY" if game.profile.is_character_unlocked(game.selected_character) else "UNLOCK  %d COINS" % character.cost, 15, Color("ffcf77"))
-	text_centered(SCREEN.x * 0.5, 810, "Press PLAY from the main menu to begin", 18, Color("aabce1"))
+	text_centered(SCREEN.x * 0.5, 762, "DANGER  —  arrows or click", 15, Color("8ea4cb"))
+	for i in range(Balance.DANGER_LEVELS):
+		var chip := danger_rect(i)
+		var unlocked := i <= game.profile.max_danger()
+		var picked := i == game.danger
+		var accent := Color("ffcf77").lerp(Color("ff718b"), float(i) / float(Balance.DANGER_LEVELS - 1))
+		draw_panel(chip, Color("263452") if picked else Color("141c31"), accent if unlocked else Color("2b3550"), 3.0 if picked else 1.5)
+		text_centered(chip.get_center().x, chip.get_center().y + 8, str(i) if unlocked else "-", 22, accent if unlocked else Color("46526e"))
+	text_centered(SCREEN.x * 0.5, 880, "Press PLAY from the main menu to begin", 18, Color("aabce1"))
 
 func draw_menu_background() -> void:
 	fill_screen(Color("0b1020"))
@@ -195,12 +209,13 @@ func draw_hud() -> void:
 	var x := MARGIN + 300.0
 	for weapon in s.weapons:
 		var label: String = weapon.display_name()
-		var width := text_width(label, 14) + 18.0
-		draw_panel(Rect2(x, 64, width, 26), Color(0.09,0.13,0.24,0.85), weapon.def().color, 1.0)
-		text_at(Vector2(x + 9, 83), label, 14, weapon.def().color)
+		var width := text_width(label, 14) + 42.0
+		draw_panel(Rect2(x, 62, width, 30), Color(0.09,0.13,0.24,0.85), weapon.def().color, 1.0)
+		Icons.weapon(self, weapon.id, Vector2(x + 15, 77), 11.0, weapon.def().color)
+		text_at(Vector2(x + 30, 84), label, 14, weapon.def().color)
 		x += width + 9.0
 	var round_status := "CLEAR HOSTILES" if s.round_phase == "cleanup" else ("SHOP" if s.round_phase == "shop" else "FIGHT")
-	text_right(right, 50, "WAVE %d  %02d" % [s.round_number, int(ceil(s.round_time_left))], 28, Color("ffd166"))
+	text_right(right, 50, "WAVE %d / %d   %02d" % [s.round_number, Balance.FINAL_WAVE, int(ceil(s.round_time_left))], 28, Color("ffd166"))
 	text_right(right, 80, "%s  •  KILLS %d" % [round_status, s.kills], 16, Color("ffcf77") if s.round_phase != "combat" else Color("b6c6e8"))
 	text_right(right, 106, "Q DASH %s    E NOVA %s" % ["READY" if s.dash_cooldown <= 0.0 else "%.1fs" % s.dash_cooldown, "READY" if s.nova_cooldown <= 0.0 else "%.1fs" % s.nova_cooldown], 15, Color("b6c6e8"))
 	var bar_y := SCREEN.y - 34.0
@@ -242,6 +257,8 @@ func draw_offer_card(index: int, s: GameSession) -> void:
 	var edge: Color = offer.color if affordable else Color("54617d")
 	draw_panel(rect, Color(0.12,0.16,0.28,0.95) if hovered else Color("151d35"), edge, 3.0 if hovered else 2.0)
 	text_at(rect.position + Vector2(20, 38), "WEAPON" if offer.kind == "weapon" else "ITEM", 13, Color("8ea4cb"))
+	if offer.kind == "weapon": Icons.weapon(self, String(offer.id), rect.position + Vector2(rect.size.x - 52, 56), 30.0, edge)
+	else: Icons.item(self, String(offer.id), rect.position + Vector2(rect.size.x - 52, 56), 26.0, edge)
 	text_at(rect.position + Vector2(20, 74), String(offer.name), 21, edge)
 	draw_wrapped(rect.position + Vector2(20, 112), String(offer.text), 15, Color("c8d3ed"), rect.size.x - 40.0)
 	if offer.kind == "weapon":
@@ -262,9 +279,10 @@ func draw_weapon_slots(s: GameSession) -> void:
 		var weapon: Weapon = s.weapons[i]
 		var hovered := game.menu_hover == "sell_%d" % i
 		draw_panel(rect, Color(0.14,0.10,0.14,0.95) if hovered else Color("1a2440"), weapon.def().color, 2.0 if hovered else 1.5)
-		text_at(rect.position + Vector2(14, 26), weapon.display_name(), 15, weapon.def().color)
+		Icons.weapon(self, weapon.id, rect.position + Vector2(26, 31), 17.0, weapon.def().color)
+		text_at(rect.position + Vector2(50, 26), weapon.display_name(), 15, weapon.def().color)
 		var note := "sell +%d" % weapon.sell_value() if hovered and s.weapons.size() > 1 else "%.0f dmg" % WeaponCatalog.damage_at(weapon.id, weapon.tier)
-		text_at(rect.position + Vector2(14, 50), note, 13, Color("ff9aa8") if hovered else Color("9fb3d9"))
+		text_at(rect.position + Vector2(50, 50), note, 13, Color("ff9aa8") if hovered else Color("9fb3d9"))
 
 func draw_owned_items(s: GameSession) -> void:
 	var top := SLOT_TOP + SLOT_SIZE.y + 40.0
@@ -273,10 +291,15 @@ func draw_owned_items(s: GameSession) -> void:
 	if s.items.is_empty():
 		text_at(Vector2(left + 78, top), "none yet", 15, Color("54617d"))
 		return
-	var names: Array[String] = []
+	var x := left + 84.0
 	for id in s.items:
-		names.append(String(ItemCatalog.get_item(id).name))
-	draw_wrapped(Vector2(left + 78, top), "  •  ".join(names), 15, Color("c8d3ed"), SCREEN.x - left * 2.0 - 78.0)
+		var def := ItemCatalog.get_item(id)
+		var width := text_width(String(def.name), 14) + 40.0
+		if x + width > SCREEN.x - left: break
+		draw_panel(Rect2(x, top - 22, width, 30), Color(0.09,0.13,0.24,0.8), def.color, 1.0)
+		Icons.item(self, id, Vector2(x + 16, top - 7), 11.0, def.color)
+		text_at(Vector2(x + 31, top), String(def.name), 14, Color("c8d3ed"))
+		x += width + 8.0
 
 func draw_stat_strip(s: GameSession) -> void:
 	var left := slot_rect(0).position.x
@@ -354,9 +377,62 @@ func draw_toggle_row(rect: Rect2, row: Dictionary) -> void:
 	text_right(rect.end.x - 28, rect.position.y + 44, "ON" if row.on else "OFF", 24, accent)
 
 func draw_game_over() -> void:
-	fill_screen(Color(0.03,0.01,0.07,0.78))
+	fill_screen(Color(0.03,0.01,0.07,0.82))
+	text_centered(SCREEN.x * 0.5, 200, "THE RIFT CONSUMES YOU", 42, Color("ff7590"))
+	draw_run_summary(250.0)
+	text_centered(SCREEN.x * 0.5, 960, "SPACE: run again   •   ESC: main menu", 21, Color("ffe09b"))
+
+func draw_victory() -> void:
+	fill_screen(Color(0.02,0.05,0.06,0.86))
+	var pulse := (sin(Time.get_ticks_msec() * 0.004) + 1.0) * 0.5
+	text_centered(SCREEN.x * 0.5, 190, "THE RIFT HOLDS", 48, Color("69f4d4").lerp(Color("ffe09b"), pulse))
+	text_centered(SCREEN.x * 0.5, 232, "All %d waves cleared at danger %d" % [Balance.FINAL_WAVE, game.danger], 20, Color("dbe8ff"))
+	draw_run_summary(268.0)
+	var next_danger: int = game.danger + 1
+	if next_danger < Balance.DANGER_LEVELS and game.profile.max_danger() >= next_danger:
+		text_centered(SCREEN.x * 0.5, 920, "DANGER %d UNLOCKED" % next_danger, 24, Color("ffcf77"))
+	text_centered(SCREEN.x * 0.5, 960, "SPACE: back to the title screen", 21, Color("ffe09b"))
+
+# Shared by the death and victory screens: what the run actually was, since a
+# number on its own says nothing about the build that produced it.
+func draw_run_summary(top: float) -> void:
 	var s := game.session
-	text_centered(SCREEN.x * 0.5, 440, "THE RIFT CONSUMES YOU", 36, Color("ff7590"))
-	text_centered(SCREEN.x * 0.5, 492, "Time survived: %02d:%02d  •  Kills: %d" % [int(s.run_time)/60, int(s.run_time)%60, s.kills], 20, Color("d2d9ed"))
-	text_centered(SCREEN.x * 0.5, 532, "Wave %d reached  •  +%d coins earned" % [s.round_number, s.round_number * 4 + int(s.kills / 4)], 20, Color("ffcf77"))
-	text_centered(SCREEN.x * 0.5, 580, "SPACE: retry   •   ESC: main menu", 21, Color("ffe09b"))
+	var panel := Rect2((SCREEN.x - 1100.0) * 0.5, top, 1100, 600)
+	draw_panel(panel, Color(0.06,0.09,0.17,0.92), Color("3d527d"), 2.0)
+	var left := panel.position.x + 48.0
+	var headline := "WAVE %d / %d      %02d:%02d      %d KILLS      LEVEL %d      +%d COINS" % [
+		s.round_number, Balance.FINAL_WAVE, int(s.run_time) / 60, int(s.run_time) % 60,
+		s.kills, s.level, game.last_reward]
+	text_centered(SCREEN.x * 0.5, top + 62, headline, 22, Color("ffcf77"))
+
+	text_at(Vector2(left, top + 130), "WEAPONS", 15, Color("8ea4cb"))
+	for i in range(s.weapons.size()):
+		var weapon: Weapon = s.weapons[i]
+		var slot := Rect2(left + float(i % 3) * 340.0, top + 152.0 + float(i / 3) * 66.0, 320, 54)
+		draw_panel(slot, Color("1a2440"), weapon.def().color, 1.5)
+		Icons.weapon(self, weapon.id, slot.position + Vector2(30, 27), 17.0, weapon.def().color)
+		text_at(slot.position + Vector2(58, 24), weapon.display_name(), 16, weapon.def().color)
+		text_at(slot.position + Vector2(58, 45), "%.0f dmg" % WeaponCatalog.damage_at(weapon.id, weapon.tier), 13, Color("9fb3d9"))
+
+	text_at(Vector2(left, top + 312), "ITEMS", 15, Color("8ea4cb"))
+	if s.items.is_empty():
+		text_at(Vector2(left + 80, top + 312), "none", 15, Color("54617d"))
+	var x := left
+	var y := top + 336.0
+	for id in s.items:
+		var def := ItemCatalog.get_item(id)
+		var width := text_width(String(def.name), 13) + 38.0
+		if x + width > panel.end.x - 48.0:
+			x = left
+			y += 36.0
+		draw_panel(Rect2(x, y, width, 28), Color(0.09,0.13,0.24,0.85), def.color, 1.0)
+		Icons.item(self, id, Vector2(x + 15, y + 14), 10.0, def.color)
+		text_at(Vector2(x + 29, y + 19), String(def.name), 13, Color("c8d3ed"))
+		x += width + 8.0
+
+	text_at(Vector2(left, top + 494), "FINAL STATS", 15, Color("8ea4cb"))
+	var parts: Array[String] = []
+	for stat in ["max_hp", "damage", "attack_speed", "crit_chance", "armor", "dodge", "speed", "lifesteal", "attack_range", "harvesting", "luck"]:
+		if is_zero_approx(s.stats.get_stat(stat)): continue
+		parts.append("%s %s" % [Stats.LABELS[stat], s.stats.format(stat)])
+	draw_wrapped(Vector2(left, top + 522), "   •   ".join(parts), 15, Color("c8d3ed"), panel.size.x - 96.0)

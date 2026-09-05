@@ -15,6 +15,8 @@ const MENU_STATES := ["title", "settings", "settings_pause", "paused"]
 
 var selected_gun := 0
 var selected_character := 0
+var danger := 0
+var last_reward := 0
 var sound_enabled := true
 var rift_effects_enabled := true
 var profile := ProfileManager.new()
@@ -44,9 +46,16 @@ func _ready() -> void:
 	# menus. The session has to opt back in explicitly.
 	session.process_mode = Node.PROCESS_MODE_PAUSABLE
 	profile.load_profile()
+	# Settings live in the profile now, so they survive a quit.
+	sound_enabled = profile.setting("sound")
+	rift_effects_enabled = profile.setting("rift_effects")
+	audio.enabled = sound_enabled
+	danger = profile.max_danger()
+	if profile.setting("fullscreen"): toggle_fullscreen()
 	session.level_up_requested.connect(func() -> void: state = "level_up")
 	session.wave_cleared.connect(func() -> void: state = "shop")
 	session.run_ended.connect(on_run_ended)
+	session.run_won.connect(on_run_won)
 	session.rift_effects_enabled = rift_effects_enabled
 
 func _process(delta: float) -> void:
@@ -94,13 +103,26 @@ func start_run() -> void:
 	if not profile.is_character_unlocked(selected_character):
 		if not profile.unlock_character(selected_character, int(CharacterCatalog.get_character(selected_character).cost)): return
 	session.selected_gun = selected_gun
+	session.danger = danger
 	session.reset_run()
 	session.apply_character(selected_character)
 	state = "playing"
 
 func on_run_ended() -> void:
-	profile.add_coins(session.round_number * 4 + int(session.kills / 4))
+	last_reward = session.round_number * 4 + int(session.kills / 4) + danger * 6
+	profile.add_coins(last_reward)
 	state = "game_over"
+
+func on_run_won() -> void:
+	# Winning pays far better than dying deep, and opens the next rung of the
+	# danger ladder.
+	last_reward = 120 + danger * 45 + int(session.kills / 4)
+	profile.add_coins(last_reward)
+	profile.record_victory(danger)
+	state = "victory"
+
+func set_danger(value: int) -> void:
+	danger = clampi(value, 0, profile.max_danger())
 
 func open_settings() -> void:
 	state = "settings_pause" if state == "paused" else "settings"
@@ -118,6 +140,9 @@ func handle_menu_action(action: String) -> void:
 		return
 	if action.begins_with("sell_"):
 		session.sell_weapon(int(action.trim_prefix("sell_")))
+		return
+	if action.begins_with("danger_"):
+		set_danger(int(action.trim_prefix("danger_")))
 		return
 	match action:
 		"play": start_run()
@@ -144,14 +169,17 @@ func is_fullscreen() -> bool:
 func toggle_fullscreen() -> void:
 	# Borderless rather than exclusive fullscreen, so alt-tab stays instant.
 	get_window().mode = Window.MODE_WINDOWED if is_fullscreen() else Window.MODE_FULLSCREEN
+	profile.set_setting("fullscreen", is_fullscreen())
 
 func toggle_sound() -> void:
 	sound_enabled = not sound_enabled
 	audio.enabled = sound_enabled
+	profile.set_setting("sound", sound_enabled)
 
 func toggle_rift_effects() -> void:
 	rift_effects_enabled = not rift_effects_enabled
 	session.rift_effects_enabled = rift_effects_enabled
+	profile.set_setting("rift_effects", rift_effects_enabled)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and state in MOUSE_STATES:
@@ -185,6 +213,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif state == "armory":
 		if event.keycode >= KEY_1 and event.keycode <= KEY_3: selected_gun = event.keycode - KEY_1
 		elif event.keycode == KEY_C: selected_character = (selected_character + 1) % CharacterCatalog.all().size()
+		elif event.keycode == KEY_LEFT: set_danger(danger - 1)
+		elif event.keycode == KEY_RIGHT: set_danger(danger + 1)
 		elif event.keycode == KEY_ESCAPE or event.keycode == KEY_B: state = "title"
 	elif state == "settings" or state == "settings_pause":
 		if event.keycode == KEY_S: toggle_sound()
@@ -210,6 +240,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif state == "game_over":
 		if event.keycode == KEY_SPACE: start_run()
 		elif event.keycode == KEY_ESCAPE: state = "title"
+	elif state == "victory":
+		if event.keycode == KEY_SPACE or event.keycode == KEY_ENTER or event.keycode == KEY_ESCAPE: state = "title"
 	elif state == "playing":
 		if event.keycode == KEY_ESCAPE: state = "paused"
 		elif event.keycode == KEY_Q: session.dash()

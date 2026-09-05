@@ -44,6 +44,30 @@ const NOVA_DAMAGE := 46.0
 const NOVA_KNOCKBACK := 620.0
 const NOVA_COOLDOWN := 8.0
 
+# A run is a fixed twenty waves. Clearing the last one wins it, which is what
+# gives the shop decisions somewhere to build toward.
+const FINAL_WAVE := 20
+
+# Danger levels are the replay ladder: beating one opens the next. Enemies get
+# tougher, and materials rise to part-compensate so the shop keeps pace.
+const DANGER_LEVELS := 6
+const DANGER_HP := 0.24
+const DANGER_SPEED := 0.05
+const DANGER_SPAWN := 0.09
+const DANGER_MATERIALS := 0.16
+
+static func danger_hp(danger: int) -> float:
+	return 1.0 + float(danger) * DANGER_HP
+
+static func danger_speed(danger: int) -> float:
+	return 1.0 + float(danger) * DANGER_SPEED
+
+static func danger_spawn(danger: int) -> float:
+	return 1.0 / (1.0 + float(danger) * DANGER_SPAWN)
+
+static func danger_materials(danger: int) -> float:
+	return 1.0 + float(danger) * DANGER_MATERIALS
+
 # Elites: a rare, much tougher version of any enemy, worth far more materials.
 const ELITE_FIRST_ROUND := 3
 const ELITE_CHANCE_BASE := 0.02
