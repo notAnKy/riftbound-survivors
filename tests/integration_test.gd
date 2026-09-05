@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 65
+const EXPECTED_CHECKS := 71
 var checks := 0
 
 func _initialize() -> void:
@@ -47,6 +47,7 @@ func bootstrap() -> void:
 	await test_healing()
 	await test_nova()
 	test_stat_math()
+	test_display_settings()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -196,6 +197,10 @@ func test_pause_freezes_the_field() -> void:
 		s.actors.remove_child(enemy)
 		enemy.queue_free()
 	var mob = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(200, 0), false)
+	# The player auto-fires the moment the game resumes, and a round-1 husk
+	# dies in two shots, so the final assertion could read a freed node.
+	mob.max_hp = 1000000.0
+	mob.hp = mob.max_hp
 	await step(2)
 	for menu in ["paused", "level_up"]:
 		game.state = menu
@@ -413,3 +418,20 @@ func test_nova() -> void:
 	await step(45)
 	check("the blast cleans itself up", s.get_node_or_null("NovaBlast") == null)
 	game.free()
+
+# The window used to open exactly as tall as a 1080p desktop, so the title bar
+# pushed the bottom of the UI -- the HP and XP bars -- off the screen entirely.
+func test_display_settings() -> void:
+	var design := Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width")),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height")))
+	check("the design viewport is 1920x1080 (%s)" % design, design == Vector2(1920, 1080))
+	check("the UI is laid out against that same size", GameUI.SCREEN == design)
+	check("canvas_items stretch scales the design size into the window",
+		String(ProjectSettings.get_setting("display/window/stretch/mode")) == "canvas_items")
+	check("aspect is kept, so nothing is cropped off an edge",
+		String(ProjectSettings.get_setting("display/window/stretch/aspect")) == "keep")
+	var window_h := int(ProjectSettings.get_setting("display/window/size/window_height_override"))
+	check("the default window leaves room for a title bar (%dpx tall)" % window_h, window_h > 0 and window_h <= 1000)
+	var visible: Vector2 = get_root().get_visible_rect().size
+	check("the viewport still measures the full design area (%s)" % visible, visible == design)

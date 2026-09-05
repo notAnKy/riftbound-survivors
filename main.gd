@@ -80,6 +80,14 @@ func handle_menu_action(action: String) -> void:
 		"go": leave_shop()
 		"quit": get_tree().quit()
 
+func is_fullscreen() -> bool:
+	var mode := get_window().mode
+	return mode == Window.MODE_FULLSCREEN or mode == Window.MODE_EXCLUSIVE_FULLSCREEN
+
+func toggle_fullscreen() -> void:
+	# Borderless rather than exclusive fullscreen, so alt-tab stays instant.
+	get_window().mode = Window.MODE_WINDOWED if is_fullscreen() else Window.MODE_FULLSCREEN
+
 func toggle_sound() -> void:
 	sound_enabled = not sound_enabled
 	audio.enabled = sound_enabled
@@ -93,6 +101,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		handle_menu_action(ui.menu_action_at(event.position))
 		return
 	if not (event is InputEventKey and event.pressed and not event.echo): return
+	# Fullscreen is global: it has to work from every screen, so it is handled
+	# before any per-state key mapping gets a look at the event.
+	if event.keycode == KEY_F11 or (event.keycode == KEY_ENTER and event.alt_pressed):
+		toggle_fullscreen()
+		return
 	if state == "title":
 		if event.keycode == KEY_ENTER or event.keycode == KEY_SPACE or event.keycode == KEY_P: handle_menu_action("play")
 		elif event.keycode == KEY_A: handle_menu_action("armory")

@@ -26,7 +26,16 @@ func shoot(name: String) -> void:
 	var err := image.save_png(path)
 	print("%s -> %s" % [name, "ok" if err == OK else "ERR %d" % err])
 
+func report_display() -> void:
+	var window_size := DisplayServer.window_get_size()
+	var visible: Vector2 = get_root().get_visible_rect().size
+	var scale: Vector2 = get_root().get_final_transform().get_scale()
+	print("window %s | design %s | scale %.3f | cropped: %s" % [
+		window_size, visible, scale.x,
+		"YES" if scale.x * visible.x > float(window_size.x) + 1.0 or scale.y * visible.y > float(window_size.y) + 1.0 else "no"])
+
 func capture() -> void:
+	report_display()
 	var game = load("res://Main.tscn").instantiate()
 	root.add_child(game)
 	await settle(4)

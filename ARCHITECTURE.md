@@ -47,8 +47,19 @@ copies that could drift out of sync.
 
 ## Screen and arena
 
-The game runs at **1920x1080** with `stretch/mode = canvas_items` and
-`aspect = keep`, so it letterboxes rather than distorting on other displays.
+The game is designed at **1920x1080** and `stretch/mode = canvas_items` with
+`aspect = keep` scales that whole area into whatever the window happens to be,
+letterboxing rather than distorting or cropping.
+
+**The design size and the window size are separate settings, and the window
+must be smaller.** `window_*_override` opened the window at exactly 1920x1080
+once, which on a 1080p desktop meant the title bar pushed the bottom of the UI
+-- the HP and XP bars -- off the screen. It now opens at 1600x900 and scales
+up. `tests/screenshot.gd` prints window size, design size and whether anything
+is cropped on every run.
+
+**F11 (or Alt+Enter) toggles borderless fullscreen**, handled in `main.gd`
+before any per-state key mapping so it works from every screen.
 
 **`GameUI.SCREEN` is the one source of screen size** and every menu rectangle
 comes from a helper (`menu_button_rect`, `card_rect`, `slot_rect`, ...) that

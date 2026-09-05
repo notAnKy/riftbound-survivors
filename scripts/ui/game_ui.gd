@@ -305,12 +305,14 @@ func draw_pause() -> void:
 func draw_settings(title: String, footer: String) -> void:
 	fill_screen(Color("0b1020"))
 	text_centered(SCREEN.x * 0.5, 300, title, 44, Color("eaf1ff"))
-	var panel := Rect2((SCREEN.x - 700.0) * 0.5, 380, 700, 260)
+	var panel := Rect2((SCREEN.x - 700.0) * 0.5, 380, 700, 320)
 	draw_panel(panel, Color("182441"), Color("607cab"))
 	text_at(panel.position + Vector2(60, 84), "S    Sound Effects", 24, Color("e9f0ff"))
 	text_right(panel.end.x - 60, panel.position.y + 84, "ON" if game.sound_enabled else "OFF", 24, Color("69f4d4") if game.sound_enabled else Color("ff718b"))
 	text_at(panel.position + Vector2(60, 164), "V    Rift Effects", 24, Color("e9f0ff"))
 	text_right(panel.end.x - 60, panel.position.y + 164, "ON" if game.rift_effects_enabled else "OFF", 24, Color("69f4d4") if game.rift_effects_enabled else Color("ff718b"))
+	text_at(panel.position + Vector2(60, 244), "F11  Fullscreen", 24, Color("e9f0ff"))
+	text_right(panel.end.x - 60, panel.position.y + 244, "ON" if game.is_fullscreen() else "OFF", 24, Color("69f4d4") if game.is_fullscreen() else Color("ff718b"))
 	text_centered(SCREEN.x * 0.5, 700, footer, 17, Color("aabce1"))
 
 func draw_game_over() -> void:
