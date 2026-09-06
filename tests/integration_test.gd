@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 278
+const EXPECTED_CHECKS := 283
 var checks := 0
 
 func _initialize() -> void:
@@ -49,6 +49,7 @@ func bootstrap() -> void:
 	await test_weapon_combining()
 	await test_combine_in_the_shop()
 	await test_coop_two_players()
+	await test_coop_movement()
 	await test_coop_down_and_revive()
 	await test_coop_separate_economies()
 	await test_coop_split_screen()
@@ -1126,6 +1127,43 @@ func test_coop_two_players() -> void:
 	s.seat(1).downed = true
 	s.seat(1).player.set_downed(true)
 	check("and never for one who is down", mob.closest_target() == s.seat(0).player)
+	game.free()
+
+# Driven through the real actions, because the rest of the co-op tests only
+# assert that each seat is *labelled* with a device. That is not the same as a
+# key actually moving a body, and the difference was a version where neither
+# player could move: the per-device actions were never registered.
+func test_coop_movement() -> void:
+	var game = await coop_game()
+	var s = game.session
+	var missing: Array[String] = []
+	for action in Controls.KEYBOARD + Controls.PAD:
+		if not InputMap.has_action(String(action)): missing.append(String(action))
+	check("the per-device actions exist (%s)" % ("all present" if missing.is_empty() else str(missing)),
+		missing.is_empty())
+
+	clear_field(s)
+	# Parked in the shop phase so nothing spawns and shoves the two of them.
+	s.round_phase = "shop"
+	var one: Vector2 = s.seat(0).player.position
+	var two: Vector2 = s.seat(1).player.position
+	Input.action_press("kb_right")
+	await step(8)
+	Input.action_release("kb_right")
+	check("the keyboard moves player one (%.0fpx)" % s.seat(0).player.position.distance_to(one),
+		s.seat(0).player.position.distance_to(one) > 20.0)
+	check("and leaves player two where they were (%.0fpx)" % s.seat(1).player.position.distance_to(two),
+		s.seat(1).player.position.distance_to(two) < 1.0)
+
+	one = s.seat(0).player.position
+	two = s.seat(1).player.position
+	Input.action_press("pad_left")
+	await step(8)
+	Input.action_release("pad_left")
+	check("the pad moves player two (%.0fpx)" % s.seat(1).player.position.distance_to(two),
+		s.seat(1).player.position.distance_to(two) > 20.0)
+	check("and leaves player one where they were (%.0fpx)" % s.seat(0).player.position.distance_to(one),
+		s.seat(0).player.position.distance_to(one) < 1.0)
 	game.free()
 
 # Nobody loses the run alone: going down is a round out, not the end.

@@ -124,6 +124,10 @@ func _ready() -> void:
 	# Hangs the stick and the d-pad off the movement actions the keys already
 	# use, so nothing downstream has to know a controller exists.
 	Gamepad.bind_movement()
+	# And registers the per-device sets co-op reads. Without this the kb_* and
+	# pad_* actions simply do not exist, get_vector reads zero for both seats,
+	# and neither player can move at all.
+	Controls.bind_all()
 	profile.load_profile()
 	# Settings live in the profile now, so they survive a quit.
 	rift_effects_enabled = profile.setting("rift_effects")
