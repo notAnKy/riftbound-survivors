@@ -5,12 +5,12 @@ extends RefCounted
 # balance pass is an edit here rather than a hunt through the spawner.
 
 # Enemy health at round N is (BASE + PER_ROUND * N) * type multiplier * curve.
-const ENEMY_HP_BASE := 18.0
-const ENEMY_HP_PER_ROUND := 5.5
+const ENEMY_HP_BASE := 15.0
+const ENEMY_HP_PER_ROUND := 4.2
 
 # The curve compounds, so small changes here matter far more by round 10 than
 # anything else in this file. 1.30 made round 10 enemies roughly 1700hp.
-const ROUND_INTENSITY := 1.185
+const ROUND_INTENSITY := 1.16
 
 const ENEMY_SPEED_MIN := 54.0
 const ENEMY_SPEED_MAX := 82.0
@@ -30,6 +30,10 @@ const XP_FLAT := 3
 # Seconds between spawn batches, before the curve divides it down.
 const SPAWN_INTERVAL := 1.05
 const SPAWN_INTERVAL_MIN := 0.16
+# Rounds at which the spawner starts adding another enemy per batch. It
+# used to double up at round 4, which is exactly where the difficulty
+# complaint landed.
+const SPAWN_BATCH_EVERY := 5
 
 # Healing. A drop on some kills, plus a steady trickle every so many kills so
 # a long clean wave repays the player even when no bandage rolls.

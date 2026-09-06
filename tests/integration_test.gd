@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 161
+const EXPECTED_CHECKS := 178
 var checks := 0
 
 func _initialize() -> void:
@@ -70,6 +70,8 @@ func bootstrap() -> void:
 	await test_orbital_archetype()
 	await test_homing_archetype()
 	await test_character_constraints()
+	await test_item_synergies()
+	await test_enemy_roster()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -905,4 +907,97 @@ func test_character_constraints() -> void:
 	var extra: Dictionary = {"kind":"weapon", "id":"lance", "tier":1, "name":"x", "text":"", "color":Color.WHITE, "price":1}
 	s.shop.offers[0] = extra
 	check("a full rack refuses another weapon", not s.buy(0))
+	game.free()
+
+# Synergy items scale off the rest of the build, so the sheet has to be rebuilt
+# rather than added to -- selling a weapon must take the bonus with it.
+func test_item_synergies() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	var rack: Array[Weapon] = [Weapon.new("pistol", 1)]
+	s.weapons = rack
+	s.rebuild_stats()
+	var bare: float = s.stats.get_stat("damage")
+	s.add_item("arsenal_link")
+	var one: float = s.stats.get_stat("damage")
+	check("a per-weapon item pays out on what you hold (%.0f -> %.0f)" % [bare, one], one > bare)
+	s.add_weapon("smg", 1)
+	var two: float = s.stats.get_stat("damage")
+	check("buying a weapon raises it (%.0f -> %.0f)" % [one, two], two > one)
+	s.sell_weapon(1)
+	check("selling one takes the bonus back (%.0f -> %.0f)" % [two, s.stats.get_stat("damage")], is_equal_approx(s.stats.get_stat("damage"), one))
+
+	# level-up grants must survive the rebuild an item purchase triggers
+	var granted: Dictionary = {"damage": 25.0}
+	var choice: Array[Dictionary] = [{"title":"T", "rarity":"COMMON", "stats":granted}]
+	s.upgrades = choice
+	s.choose_upgrade(0)
+	var after_upgrade: float = s.stats.get_stat("damage")
+	check("a level-up grant lands (%.0f)" % after_upgrade, after_upgrade > one)
+	s.add_item("focus_lens")
+	check("and survives an item purchase rebuilding the sheet", s.stats.get_stat("damage") > after_upgrade)
+
+	# empty slots version moves the other way
+	var solo = await fresh_game()
+	var t = solo.session
+	var single: Array[Weapon] = [Weapon.new("pistol", 1)]
+	t.weapons = single
+	t.rebuild_stats()
+	t.add_item("lone_wolf")
+	var lonely: float = t.stats.get_stat("damage")
+	t.add_weapon("smg", 1)
+	check("an empty-slot item pays less as you fill up (%.0f -> %.0f)" % [lonely, t.stats.get_stat("damage")], t.stats.get_stat("damage") < lonely)
+	check("its description names the scaling (%s)" % ItemCatalog.describe(ItemCatalog.get_item("lone_wolf")), "per" in ItemCatalog.describe(ItemCatalog.get_item("lone_wolf")))
+	solo.free()
+	game.free()
+
+func test_enemy_roster() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	clear_field(s)
+
+	# a splitter leaves children behind
+	var before: int = s.actors.get_child_count()
+	s.on_enemy_died(Arena.BOUNDS.get_center(), 1, false, EnemyCatalog.get_enemy("splitter"))
+	await step(3)
+	check("a splitter leaves children behind (%d)" % (s.actors.get_child_count() - before), s.actors.get_child_count() > before)
+	# and they land inside the walls even when it dies against one
+	clear_field(s)
+	s.on_enemy_died(Arena.BOUNDS.position - Vector2(400, 400), 1, false, EnemyCatalog.get_enemy("splitter"))
+	await step(3)
+	var outside := 0
+	for child in s.actors.get_children():
+		if not Arena.BOUNDS.has_point(child.position): outside += 1
+	check("splits land inside the arena (%d outside)" % outside, outside == 0)
+
+	# a bloater hurts you if you are standing on it, and not from across the map
+	clear_field(s)
+	var bloater := EnemyCatalog.get_enemy("bloater")
+	s.player.hp = s.player.max_hp
+	s.on_enemy_died(s.player.position + Vector2(1200, 0), 1, false, bloater)
+	check("a distant explosion is harmless (%.0f hp)" % s.player.hp, is_equal_approx(s.player.hp, s.player.max_hp))
+	s.on_enemy_died(s.player.position + Vector2(20, 0), 1, false, bloater)
+	check("one at your feet hurts (%.0f hp)" % s.player.hp, s.player.hp < s.player.max_hp)
+
+	# a charger winds up before it dashes
+	clear_field(s)
+	var charger = s.spawn_enemy(EnemyCatalog.get_enemy("charger"), s.player.position + Vector2(200, 0), false)
+	charger.max_hp = 1000000.0
+	charger.hp = charger.max_hp
+	await step(6)
+	check("a charger telegraphs before it moves (%s)" % charger.charge_state, charger.charge_state == "windup")
+	var held: Vector2 = charger.position
+	await step(4)
+	check("and holds still while winding up (%.1fpx)" % charger.position.distance_to(held), charger.position.distance_to(held) < 4.0)
+	await step(60)
+	check("then it commits to a dash (%s)" % charger.charge_state, charger.charge_state != "windup")
+
+	# bosses alternate
+	check("wave 5 and wave 10 are different bosses (%s / %s)" % [EnemyCatalog.boss(5).id, EnemyCatalog.boss(10).id], EnemyCatalog.boss(5).id != EnemyCatalog.boss(10).id)
+	check("the ladder wraps rather than running out", EnemyCatalog.boss(15).id == EnemyCatalog.boss(5).id)
+	# and every enemy the spawner can pick has a real texture
+	var missing: Array[String] = []
+	for def in EnemyCatalog.all() + EnemyCatalog.bosses():
+		if not ResourceLoader.exists("res://assets/sprites/%s.png" % def.texture): missing.append(String(def.id))
+	check("every enemy has a sprite (%s)" % ("all present" if missing.is_empty() else str(missing)), missing.is_empty())
 	game.free()

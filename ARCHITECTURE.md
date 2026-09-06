@@ -155,6 +155,18 @@ Two shapes are deliberate:
 Everything downstream reads the sheet, so one item bought in the shop changes
 health, movement, all six weapons and survivability at once.
 
+### Item synergies
+
+An item may carry a `per` block -- `+5% damage per weapon held`, `+13% damage
+per empty slot`. Because the count changes whenever the inventory does, **the
+stat sheet is rebuilt from scratch** in `rebuild_stats()` rather than added to
+once at purchase: character base, then accumulated level-up grants
+(`upgrade_totals`, kept separately precisely so they survive the rebuild), then
+every item. Selling a weapon therefore takes an Arsenal Link bonus with it.
+
+Anything that changes the inventory must call it: `add_item`, `add_weapon`,
+`sell_weapon` and `choose_upgrade` all do.
+
 ### Weapon archetypes
 
 `kind` on a weapon definition is the verb, and it is what stops every weapon

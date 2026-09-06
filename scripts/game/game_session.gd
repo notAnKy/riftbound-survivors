@@ -51,6 +51,10 @@ var nova_cooldown := 0.0
 var shake := 0.0
 var hitstop_until := 0
 var upgrades: Array[Dictionary] = []
+# Level-up grants are kept apart from the items, because the sheet is
+# rebuilt from scratch whenever the inventory changes and they have to
+# survive that.
+var upgrade_totals: Dictionary = {}
 var rng := RandomNumberGenerator.new()
 var audio: AudioSfx
 
@@ -112,6 +116,7 @@ func reset_run() -> void:
 		opening = String(character.weapon)
 	weapons = [Weapon.new(opening, 1)]
 	items = []
+	upgrade_totals = {}
 	materials = 0
 	player = PLAYER_SCENE.instantiate()
 	player.stats = stats
@@ -145,8 +150,7 @@ func apply_character(index: int) -> void:
 	if not is_instance_valid(player): return
 	selected_character = index
 	var character := CharacterCatalog.get_character(index)
-	stats.set_stat("max_hp", float(character.hp))
-	stats.apply_dict(character.get("stats", {}))
+	rebuild_stats()
 	player.base_speed = float(character.speed)
 	# A full modulate drains the sprite art, so the character colour is only
 	# mixed in as a tint.
@@ -193,7 +197,7 @@ func begin_round() -> void:
 	spawn_timer = 0.15
 	if round_number % 5 == 0:
 		var top := Vector2(Arena.BOUNDS.get_center().x, Arena.BOUNDS.position.y + 70.0)
-		spawn_enemy(EnemyCatalog.boss(), top, true)
+		spawn_enemy(EnemyCatalog.boss(round_number), top, true)
 		audio.play("boom", 3.0)
 
 # --- shop transactions -------------------------------------------------------
@@ -229,6 +233,7 @@ func sell_weapon(index: int) -> bool:
 	if index < 0 or index >= weapons.size() or weapons.size() <= 1: return false
 	materials += weapons[index].sell_value()
 	weapons.remove_at(index)
+	rebuild_stats()
 	audio.play("sell")
 	return true
 
@@ -244,6 +249,7 @@ func would_combine(id: String, tier: int) -> bool:
 func add_weapon(id: String, tier: int) -> void:
 	weapons.append(Weapon.new(id, tier))
 	combine_weapons()
+	rebuild_stats()
 
 func combine_weapons() -> void:
 	var merged := true
@@ -262,16 +268,43 @@ func combine_weapons() -> void:
 
 func add_item(id: String) -> void:
 	items.append(id)
-	apply_stat_gain(ItemCatalog.get_item(id).stats)
+	rebuild_stats(true)
 
-# Max HP granted mid-run should also heal, or an item that raises the ceiling
-# makes the health bar read as damage just taken.
-func apply_stat_gain(mods: Dictionary) -> void:
+# What a `per` item counts. Anything added here becomes available to every
+# synergy item at once.
+func synergy_count(of: String) -> int:
+	match of:
+		"weapons": return weapons.size()
+		"items": return items.size()
+		"empty_slots": return maxi(0, weapon_slots - weapons.size())
+		"melee":
+			var melee := 0
+			for weapon in weapons:
+				if weapon.kind() == "melee": melee += 1
+			return melee
+	return 0
+
+# Items can scale off the rest of the build, so the sheet cannot be added to
+# once and forgotten -- selling a weapon has to take an Arsenal Link bonus with
+# it. Everything is recomputed from the character, the level-ups and the items.
+func rebuild_stats(heal_gain: bool = false) -> void:
 	var before := stats.get_stat("max_hp")
-	stats.apply_dict(mods)
+	var fresh := Stats.new()
+	var character := CharacterCatalog.get_character(selected_character)
+	fresh.set_stat("max_hp", float(character.hp))
+	fresh.apply_dict(character.get("stats", {}))
+	fresh.apply_dict(upgrade_totals)
+	for id in items:
+		var def := ItemCatalog.get_item(id)
+		fresh.apply_dict(def.stats)
+		if def.has("per"):
+			var per: Dictionary = def.per
+			fresh.add(String(per.stat), float(per.amount) * float(synergy_count(String(per.of))))
+	stats = fresh
 	if not is_instance_valid(player): return
+	player.stats = stats
 	var gained := stats.get_stat("max_hp") - before
-	if gained > 0.0: player.hp += gained
+	if heal_gain and gained > 0.0: player.hp += gained
 	player.hp = clampf(player.hp, 0.0, player.max_hp)
 	player.refresh_pickup_radius()
 
@@ -283,7 +316,7 @@ func spawn_enemies(delta: float) -> void:
 	spawn_timer = maxf(Balance.SPAWN_INTERVAL_MIN, Balance.SPAWN_INTERVAL / Balance.intensity(round_number) * Balance.danger_spawn(danger))
 	var options := EnemyCatalog.available(round_number)
 	var elite_odds := Balance.elite_chance(round_number)
-	for count in range(1 + int(round_number / 4)):
+	for count in range(1 + int(round_number / Balance.SPAWN_BATCH_EVERY)):
 		var def: Dictionary = options[rng.randi_range(0, options.size() - 1)]
 		spawn_enemy(def, spawn_point(), false, rng.randf() < elite_odds)
 
@@ -463,8 +496,10 @@ func on_enemy_shot(from: Vector2, direction: Vector2, damage: float, shot_speed:
 	shots.add_child(shot)
 	shot.launch(from, direction, shot_speed, damage, 3.0, Color("ff9f6d"), 0, true)
 
-func on_enemy_died(at: Vector2, material_value: int, was_boss: bool) -> void:
+func on_enemy_died(at: Vector2, material_value: int, was_boss: bool, definition: Dictionary = {}) -> void:
 	kills += 1
+	if definition.has("explodes"): explode(at, definition.explodes)
+	if definition.has("splits"): split(at, definition.splits)
 	audio.play("kill", -3.0)
 	if was_boss:
 		add_shake(Balance.SHAKE_BOSS_DEATH)
@@ -481,6 +516,35 @@ func on_enemy_died(at: Vector2, material_value: int, was_boss: bool) -> void:
 	# when no bandage happens to roll.
 	if kills % Balance.HEAL_EVERY_KILLS == 0 and is_instance_valid(player):
 		player.heal(Balance.HEAL_ON_KILLS)
+
+# A bloater hurts the player on death, so killing one at your feet is a real
+# mistake rather than free materials.
+func explode(at: Vector2, spec: Dictionary) -> void:
+	var radius := float(spec.get("radius", 150.0))
+	var blast: NovaBlast = NOVA_SCENE.instantiate()
+	blast.position = at
+	blast.radius = radius
+	blast.tint = Color(1.0, 0.55, 0.3)
+	add_child(blast)
+	add_shake(Balance.SHAKE_NOVA * 0.5)
+	audio.play("boom", -4.0)
+	if is_instance_valid(player) and player.position.distance_to(at) <= radius:
+		player.hurt(float(spec.get("damage", 25.0)))
+
+# Splits are spawned deferred: this runs inside the projectile collision
+# callback, and the physics server will not take a new body mid-query.
+func split(at: Vector2, spec: Dictionary) -> void:
+	for i in range(int(spec.get("count", 2))):
+		var offset := Vector2.RIGHT.rotated(rng.randf() * TAU) * rng.randf_range(24.0, 48.0)
+		spawn_split.call_deferred(String(spec.get("into", "husk")), at + offset)
+
+func spawn_split(id: String, at: Vector2) -> void:
+	if round_phase == "shop" or round_phase == "won": return
+	# A parent killed against the wall would otherwise drop its children inside
+	# it, where the walls hold them out of reach.
+	var band := Arena.BOUNDS.grow(-24.0)
+	var spot := Vector2(clampf(at.x, band.position.x, band.end.x), clampf(at.y, band.position.y, band.end.y))
+	spawn_enemy(EnemyCatalog.get_enemy(id), spot, false)
 
 func drop_pickup(at: Vector2, amount: int, kind: String) -> void:
 	var pickup: Pickup = PICKUP_SCENE.instantiate()
@@ -513,7 +577,9 @@ func on_pickup_collected(value: int, kind: String = Pickup.KIND_MATERIAL) -> voi
 
 func choose_upgrade(index: int) -> void:
 	if index < 0 or index >= upgrades.size(): return
-	apply_stat_gain(upgrades[index].stats)
+	for key in upgrades[index].stats:
+		upgrade_totals[key] = float(upgrade_totals.get(key, 0.0)) + float(upgrades[index].stats[key])
+	rebuild_stats(true)
 
 func dash() -> void:
 	if is_instance_valid(player) and player.dash(): audio.play("dash")

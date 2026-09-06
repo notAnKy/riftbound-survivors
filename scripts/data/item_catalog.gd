@@ -1,8 +1,14 @@
 class_name ItemCatalog
 extends RefCounted
 
-# Passive items. `stats` is applied straight into the player Stats when bought
-# and never removed, so anything here has to be an additive modifier.
+# Passive items. `stats` is a flat additive modifier.
+#
+# `per` makes an item scale off the rest of the build:
+#   {"stat": "damage", "amount": 4.0, "of": "weapons"}  = +4% damage per
+#   weapon held. `of` is counted by GameSession.synergy_count, and because
+#   the count changes whenever the inventory does, the whole stat sheet is
+#   rebuilt from scratch rather than added to once.
+#
 # `min_round` gates the stronger items out of the first shop.
 static func all() -> Array[Dictionary]:
 	return [
@@ -41,6 +47,22 @@ static func all() -> Array[Dictionary]:
 		{"id":"overclock", "name":"OVERCLOCK", "price":36, "min_round":6,
 			"stats":{"attack_speed":22.0, "crit_chance":4.0, "armor":-4.0},
 			"color":Color("ffcc70")},
+
+		{"id":"arsenal_link", "name":"ARSENAL LINK", "price":26, "min_round":2,
+			"stats":{}, "per":{"stat":"damage", "amount":5.0, "of":"weapons"},
+			"color":Color("62e8ff")},
+		{"id":"lone_wolf", "name":"LONE WOLF", "price":28, "min_round":2,
+			"stats":{}, "per":{"stat":"damage", "amount":13.0, "of":"empty_slots"},
+			"color":Color("ff8d6d")},
+		{"id":"hoarder", "name":"HOARDER", "price":24, "min_round":3,
+			"stats":{}, "per":{"stat":"armor", "amount":1.6, "of":"items"},
+			"color":Color("b6c6e8")},
+		{"id":"duelist", "name":"DUELIST", "price":30, "min_round":3,
+			"stats":{}, "per":{"stat":"attack_speed", "amount":9.0, "of":"melee"},
+			"color":Color("ff6d8d")},
+		{"id":"quartermaster", "name":"QUARTERMASTER", "price":25, "min_round":4,
+			"stats":{}, "per":{"stat":"max_hp", "amount":7.0, "of":"items"},
+			"color":Color("69f4d4")},
 	]
 
 static func get_item(id: String) -> Dictionary:
@@ -52,9 +74,20 @@ static func available(round_number: int) -> Array[Dictionary]:
 	return all().filter(func(def: Dictionary) -> bool:
 		return round_number >= int(def.min_round))
 
+const PER_LABEL := {
+	"weapons": "weapon held", "items": "item held",
+	"melee": "melee weapon", "empty_slots": "empty slot",
+}
+
 # "+8% Damage, -10 Max HP" for the shop card and the item list.
 static func describe(def: Dictionary) -> String:
 	var parts: Array[String] = []
+	if def.has("per"):
+		var per: Dictionary = def.per
+		var name := String(per.stat)
+		var suffix := "%" if name in Stats.PERCENT else ""
+		parts.append("+%s%s %s per %s" % [_trim(float(per.amount)), suffix,
+			Stats.LABELS.get(name, name), PER_LABEL.get(String(per.of), String(per.of))])
 	for key in def.stats:
 		var name := String(key)
 		var amount := float(def.stats[key])

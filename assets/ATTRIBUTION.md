@@ -20,17 +20,22 @@ the glyph can be tinted in-game. No other modification is made.
 
 | Used as | Artist | Original icon |
 | --- | --- | --- |
+| `arsenal_link` (item) | delapouite | swords-power |
 | `bulwark` (item) | delapouite | shield-impact |
 | `coil_spring` (item) | delapouite | spring |
+| `duelist` (item) | lorc | crossed-swords |
 | `focus_lens` (item) | delapouite | eye-target |
 | `ghost_step` (item) | lorc | ghost |
 | `hair_trigger` (item) | lorc | lightning-arc |
+| `hoarder` (item) | delapouite | chest |
 | `honed_edge` (item) | lorc | bowie-knife |
 | `leech_rune` (item) | lorc | drop |
+| `lone_wolf` (item) | lorc | wolf-head |
 | `long_barrel` (item) | delapouite | crosshair |
 | `lucky_coin` (item) | lorc | clover |
 | `magnet_core` (item) | lorc | magnet |
 | `overclock` (item) | lorc | cogsplosion |
+| `quartermaster` (item) | lorc | knapsack |
 | `ration_pack` (item) | sbed | medical-pack |
 | `repair_field` (item) | zeromancer | heart-plus |
 | `salvage_rig` (item) | lorc | cog |

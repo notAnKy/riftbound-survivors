@@ -1,7 +1,7 @@
 class_name Enemy
 extends CharacterBody2D
 
-signal died(at: Vector2, material_value: int, was_boss: bool)
+signal died(at: Vector2, material_value: int, was_boss: bool, definition: Dictionary)
 signal damaged(at: Vector2, amount: float, crit: bool)
 signal wants_shot(from: Vector2, direction: Vector2, damage: float, shot_speed: float)
 
@@ -22,6 +22,10 @@ var wobble := 0.0
 var knockback := Vector2.ZERO
 var is_elite := false
 var is_boss := false
+# Charger state machine: approach, wind up on the spot, dash, recover.
+var charge_state := "ready"
+var charge_timer := 0.0
+var charge_dir := Vector2.RIGHT
 var age := 0.0
 var alive := true
 var tint := Color.WHITE
@@ -86,7 +90,9 @@ func _physics_process(delta: float) -> void:
 	var sprite := $Sprite as Sprite2D
 	# Bright enough to read as a hit, not so bright the silhouette is lost --
 	# a boss under sustained fire is in this state a good part of the time.
-	sprite.modulate = tint * 1.75 if hit_flash > 0.0 else tint
+	if hit_flash > 0.0: sprite.modulate = tint * 1.75
+	elif charge_state == "windup": sprite.modulate = tint * 1.6
+	else: sprite.modulate = tint
 	var to_player := player.global_position - global_position
 	var distance := to_player.length()
 	var direction := to_player / maxf(distance, 0.001)
@@ -94,6 +100,8 @@ func _physics_process(delta: float) -> void:
 	match behaviour:
 		"weave":
 			velocity = direction.rotated(sin(age * 5.0 + wobble) * 0.7) * speed
+		"charge":
+			velocity = tick_charge(delta, direction, distance)
 		"shooter":
 			# Hold the firing line: close in when out of range, back off when
 			# the player closes, so gunners stay a ranged threat.
@@ -112,6 +120,7 @@ func _physics_process(delta: float) -> void:
 	# Enemies collide with each other, so a crowd spreads out under its own
 	# pressure instead of stacking into one sprite the way the old sim did.
 	move_and_slide()
+	if charge_state == "windup": queue_redraw()
 	if behaviour != "shooter" and distance < radius + Player.BODY_RADIUS + 2.0 and attack_timer <= 0.0:
 		attack_timer = attack_cooldown
 		player.hurt(contact_damage)
@@ -127,10 +136,40 @@ func take_damage(amount: float, crit: bool = false) -> void:
 	queue_redraw()
 	if hp <= 0.0:
 		alive = false
-		died.emit(global_position, material_value, is_boss)
+		died.emit(global_position, material_value, is_boss, definition)
 		queue_free()
 
+# Winding up is telegraphed by standing still and glowing, so a charge is
+# something you can react to rather than something that just happens.
+func tick_charge(delta: float, direction: Vector2, distance: float) -> Vector2:
+	charge_timer = maxf(0.0, charge_timer - delta)
+	var reach := float(definition.get("charge_range", 320.0))
+	match charge_state:
+		"windup":
+			if charge_timer <= 0.0:
+				charge_state = "dash"
+				charge_timer = float(definition.get("charge_time", 0.5))
+				charge_dir = direction
+			return Vector2.ZERO
+		"dash":
+			if charge_timer <= 0.0:
+				charge_state = "cool"
+				charge_timer = 1.1
+			return charge_dir * speed * float(definition.get("charge_speed", 5.0))
+		"cool":
+			if charge_timer <= 0.0: charge_state = "ready"
+			return direction * speed * 0.5
+		_:
+			if distance < reach:
+				charge_state = "windup"
+				charge_timer = float(definition.get("charge_windup", 0.65))
+				return Vector2.ZERO
+			return direction * speed
+
 func _draw() -> void:
+	if charge_state == "windup":
+		var wind := 1.0 - charge_timer / maxf(float(definition.get("charge_windup", 0.65)), 0.01)
+		draw_arc(Vector2.ZERO, radius + 6.0 + wind * 8.0, 0.0, TAU, 24, Color(1.0, 0.9, 0.4, 0.8), 3.0)
 	if is_elite:
 		var pulse := 3.0 + sin(age * 4.0) * 2.0
 		draw_arc(Vector2.ZERO, radius + pulse, 0.0, TAU, 28, Color(1.0, 0.78, 0.28, 0.75), 3.0)
