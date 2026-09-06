@@ -559,7 +559,10 @@ func draw_upgrades() -> void:
 			Icons.stat(self, String(granted[0]), rect.position + Vector2(rect.size.x - 52, 58), 28.0, edge)
 		text_at(rect.position + Vector2(24, 124), String(choices[i].title), 21, Color("f1f5ff"))
 		draw_wrapped(rect.position + Vector2(24, 162), UpgradeCatalog.describe(choices[i]), 16, Color("a9bbde"), rect.size.x - 48.0)
-		text_at(rect.position + Vector2(24, 228), "TAKE" if focused else "Press %d" % (i + 1), 15, Color("ffe09b"))
+		# "Press 3" means nothing to someone holding a pad, so on a pad only the
+		# focused card says anything at all.
+		var prompt := "" if on_pad() else "Press %d" % (i + 1)
+		text_at(rect.position + Vector2(24, 228), "TAKE" if focused else prompt, 15, Color("ffe09b"))
 	var footer := upgrade_rect(0).end.y + 60.0
 	draw_hint_row(SCREEN.x * 0.5, footer, [["nav", "ARROWS", "PICK"], ["confirm", "ENTER", "TAKE"]])
 
