@@ -284,6 +284,7 @@ func draw_shop() -> void:
 	var reroll_cost: int = s.shop.reroll_cost()
 	draw_menu_button(reroll_rect(), "REROLL  %d  (R)" % reroll_cost, "reroll", Color("82b7ff") if s.materials >= reroll_cost else Color("54617d"))
 	draw_menu_button(go_rect(), "NEXT WAVE  (SPACE)", "go", Color("69f4d4"))
+	draw_class_bonuses(s)
 	draw_weapon_slots(s)
 	draw_owned_items(s)
 	draw_stat_strip(s)
@@ -307,9 +308,54 @@ func draw_offer_card(index: int, s: GameSession) -> void:
 	if offer.kind == "weapon":
 		var def: Dictionary = WeaponCatalog.get_weapon(String(offer.id))
 		var dps: float = WeaponCatalog.damage_at(String(offer.id), int(offer.tier)) * float(def.shots) / WeaponCatalog.cooldown_at(String(offer.id), int(offer.tier))
-		text_at(rect.position + Vector2(20, 192), "%.0f dps  •  %d range" % [dps, int(def.range)], 14, Color("9fb3d9"))
+		draw_class_chips(rect.position + Vector2(20, 156), def.get("classes", []), s)
+		text_at(rect.position + Vector2(20, 192), "%.0f dps  •  %d range  •  %s" % [dps, int(def.range), String(def.kind).to_upper()], 14, Color("9fb3d9"))
 	text_at(rect.position + Vector2(20, 226), "%d MATERIALS" % int(offer.price), 18, Color("8cffd1") if affordable else Color("ff718b"))
 	text_right(rect.end.x - 18, rect.position.y + 226, "(%d)" % (index + 1), 15, Color("ffe09b"))
+
+# A chip per weapon class, brightened when that class is already contributing
+# a set bonus, so the shop shows what a purchase would build toward.
+func draw_class_chips(at: Vector2, classes: Array, s: GameSession) -> void:
+	var counts := s.class_counts()
+	var x := at.x
+	for id in classes:
+		var spec: Dictionary = WeaponCatalog.CLASSES[id]
+		var held := int(counts.get(id, 0))
+		var live := s.class_steps(held) > 0
+		var label: String = "%s %d" % [spec.name, held] if held > 0 else String(spec.name)
+		var width := text_width(label, 12) + 16.0
+		var tint: Color = spec.color
+		draw_panel(Rect2(x, at.y - 14, width, 20), Color(tint.r, tint.g, tint.b, 0.22 if live else 0.08), tint if live else Color(tint.r, tint.g, tint.b, 0.4), 1.0)
+		text_at(Vector2(x + 8, at.y + 1), label, 12, tint if live else Color("7f8db0"))
+		x += width + 6.0
+
+func draw_class_bonuses(s: GameSession) -> void:
+	var counts := s.class_counts()
+	var live: Array = counts.keys().filter(func(id) -> bool: return s.class_steps(int(counts[id])) > 0)
+	var left := slot_rect(0).position.x
+	var y := SLOT_TOP - 46.0
+	text_at(Vector2(left, y), "SET BONUSES", 15, Color("8ea4cb"))
+	if live.is_empty():
+		text_at(Vector2(left + 130, y), "hold two weapons of a class to start one", 14, Color("54617d"))
+		return
+	var x := left + 130.0
+	for id in live:
+		var spec: Dictionary = WeaponCatalog.CLASSES[id]
+		var steps := s.class_steps(int(counts[id]))
+		var label: String = "%s x%d  %s" % [spec.name, int(counts[id]), scaled_bonus(spec, steps)]
+		var width := text_width(label, 13) + 18.0
+		draw_panel(Rect2(x, y - 15, width, 22), Color(spec.color.r, spec.color.g, spec.color.b, 0.16), spec.color, 1.0)
+		text_at(Vector2(x + 9, y + 1), label, 13, spec.color)
+		x += width + 8.0
+
+# The class text is written per step, so it is multiplied out for display.
+func scaled_bonus(spec: Dictionary, steps: int) -> String:
+	var parts: Array[String] = []
+	for stat in spec.per_step:
+		var amount: float = float(spec.per_step[stat]) * float(steps)
+		var suffix := "%" if String(stat) in Stats.PERCENT else ""
+		parts.append("%s%s%s %s" % ["+" if amount > 0.0 else "", ItemCatalog._trim(amount), suffix, Stats.LABELS.get(String(stat), stat)])
+	return ", ".join(parts)
 
 func draw_weapon_slots(s: GameSession) -> void:
 	text_at(Vector2(slot_rect(0).position.x, SLOT_TOP - 14), "WEAPONS  %d / %d  —  click to sell" % [s.weapons.size(), slot_count()], 15, Color("8ea4cb"))

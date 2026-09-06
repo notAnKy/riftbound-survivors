@@ -1,20 +1,31 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/game/arena.gd" id="1_arena"]
 [ext_resource type="Texture2D" path="res://assets/sprites/floor.png" id="2_floor"]
 [ext_resource type="Script" path="res://scripts/game/arena_trim.gd" id="3_trim"]
+[ext_resource type="Texture2D" path="res://assets/sprites/floor_accent.png" id="4_accent"]
 
 [node name="Arena" type="Node2D"]
 script = ExtResource("1_arena")
 
 [node name="Floor" type="Sprite2D" parent="."]
-modulate = Color(0.42, 0.47, 0.6, 1)
+modulate = Color(0.5, 0.56, 0.78, 1)
 texture_repeat = 2
-position = Vector2(28, 92)
+position = Vector2(40, 120)
 centered = false
 texture = ExtResource("2_floor")
 region_enabled = true
-region_rect = Rect2(0, 0, 1224, 596)
+region_rect = Rect2(0, 0, 1840, 890)
+
+[node name="Accent" type="Sprite2D" parent="."]
+modulate = Color(0.40, 0.60, 0.95, 0.15)
+texture_repeat = 2
+position = Vector2(40, 120)
+scale = Vector2(2.5, 2.5)
+centered = false
+texture = ExtResource("4_accent")
+region_enabled = true
+region_rect = Rect2(0, 0, 1840, 890)
 
 [node name="Trim" type="Node2D" parent="."]
 script = ExtResource("3_trim")

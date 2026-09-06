@@ -9,11 +9,16 @@ const SLOTS := 4
 const REROLL_BASE := 3
 const REROLL_STEP := 2
 const WEAPON_CHANCE := 0.45
+# How often a weapon offer is steered toward a class you already hold. Too
+# low and a build never coalesces; too high and the shop stops surprising.
+const CLASS_MATCH_CHANCE := 0.4
 
 var offers: Array[Dictionary] = []
 var rerolls := 0
 # Set from the character. Empty means every weapon is on the table.
 var allowed_kinds: Array = []
+# Weapon classes the player already owns, for the bias above.
+var owned_classes: Array = []
 
 func reroll_cost() -> int:
 	return REROLL_BASE + rerolls * REROLL_STEP
@@ -53,6 +58,14 @@ func make_offer(rng: RandomNumberGenerator, round_number: int, luck: float) -> D
 	var inflation := 1.0 + float(round_number) * Balance.SHOP_INFLATION_PER_WAVE
 	if rng.randf() < WEAPON_CHANCE:
 		var defs := WeaponCatalog.of_kinds(allowed_kinds)
+		# Bias toward what is already being built, so a run converges on a
+		# strategy instead of handing out unrelated weapons for twenty waves.
+		if not owned_classes.is_empty() and rng.randf() < CLASS_MATCH_CHANCE:
+			var matching := defs.filter(func(candidate: Dictionary) -> bool:
+				for id in candidate.get("classes", []):
+					if id in owned_classes: return true
+				return false)
+			if not matching.is_empty(): defs = matching
 		var def: Dictionary = defs[rng.randi_range(0, defs.size() - 1)]
 		var tier := roll_tier(rng, round_number, luck)
 		return {

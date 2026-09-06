@@ -155,6 +155,23 @@ Two shapes are deliberate:
 Everything downstream reads the sheet, so one item bought in the shop changes
 health, movement, all six weapons and survivability at once.
 
+### Weapon classes
+
+Every weapon belongs to one or two **classes**, and holding several of a class
+pays an escalating bonus: one step per weapon past the first, capped at five.
+Most bonuses carry a cost -- BRUTAL trades speed for damage, VOID trades armor
+for lifesteal -- so stacking a class is a decision rather than free value. A
+weapon in two classes counts for both, which is what makes those weapons worth
+more than their raw numbers.
+
+The bonuses are folded into `rebuild_stats()` after the items, so a class bonus
+and a per-item bonus can both land on the same stat.
+
+**The shop leans toward classes already held** (`CLASS_MATCH_CHANCE`). Without
+it a run never converges on a strategy; with it too high the shop stops
+surprising. Measured at 0.4, an owned class shows up in about 56% of weapon
+offers against 27% by chance.
+
 ### Item synergies
 
 An item may carry a `per` block -- `+5% damage per weapon held`, `+13% damage

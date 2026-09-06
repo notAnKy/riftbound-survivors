@@ -185,6 +185,7 @@ func finish_wave() -> void:
 	var harvest := int(stats.get_stat("harvesting"))
 	if harvest > 0: materials += harvest
 	shop.allowed_kinds = allowed_kinds
+	shop.owned_classes = class_counts().keys()
 	shop.open(rng, round_number, stats.get_stat("luck"))
 	audio.play("wave_clear")
 	wave_cleared.emit()
@@ -225,6 +226,7 @@ func reroll_shop() -> bool:
 	var cost := shop.reroll_cost()
 	if materials < cost: return false
 	materials -= cost
+	shop.owned_classes = class_counts().keys()
 	shop.reroll(rng, round_number, stats.get_stat("luck"))
 	audio.play("reroll")
 	return true
@@ -287,6 +289,19 @@ func synergy_count(of: String) -> int:
 # Items can scale off the rest of the build, so the sheet cannot be added to
 # once and forgotten -- selling a weapon has to take an Arsenal Link bonus with
 # it. Everything is recomputed from the character, the level-ups and the items.
+# How many of each weapon class are equipped. A weapon in two classes counts
+# for both, which is what makes those weapons worth more than their numbers.
+func class_counts() -> Dictionary:
+	var counts := {}
+	for weapon in weapons:
+		for id in WeaponCatalog.classes_of(weapon.id):
+			counts[id] = int(counts.get(id, 0)) + 1
+	return counts
+
+# The bonus for a class at a given count: one step per weapon past the first.
+func class_steps(count: int) -> int:
+	return clampi(count - 1, 0, WeaponCatalog.CLASS_STEP_CAP)
+
 func rebuild_stats(heal_gain: bool = false) -> void:
 	var before := stats.get_stat("max_hp")
 	var fresh := Stats.new()
@@ -300,6 +315,15 @@ func rebuild_stats(heal_gain: bool = false) -> void:
 		if def.has("per"):
 			var per: Dictionary = def.per
 			fresh.add(String(per.stat), float(per.amount) * float(synergy_count(String(per.of))))
+	# Weapon class set bonuses, applied after the items so a class bonus and a
+	# per-item bonus can both land on the same stat.
+	var counts := class_counts()
+	for id in counts:
+		var steps := class_steps(int(counts[id]))
+		if steps <= 0: continue
+		var spec: Dictionary = WeaponCatalog.CLASSES[id]
+		for stat in spec.per_step:
+			fresh.add(String(stat), float(spec.per_step[stat]) * float(steps))
 	stats = fresh
 	if not is_instance_valid(player): return
 	player.stats = stats

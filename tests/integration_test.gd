@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 178
+const EXPECTED_CHECKS := 186
 var checks := 0
 
 func _initialize() -> void:
@@ -72,6 +72,7 @@ func bootstrap() -> void:
 	await test_character_constraints()
 	await test_item_synergies()
 	await test_enemy_roster()
+	await test_weapon_classes()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -1000,4 +1001,53 @@ func test_enemy_roster() -> void:
 	for def in EnemyCatalog.all() + EnemyCatalog.bosses():
 		if not ResourceLoader.exists("res://assets/sprites/%s.png" % def.texture): missing.append(String(def.id))
 	check("every enemy has a sprite (%s)" % ("all present" if missing.is_empty() else str(missing)), missing.is_empty())
+	game.free()
+
+# Weapon classes: holding several of one pays an escalating bonus, and the shop
+# leans toward what you already hold so a run converges on a strategy.
+func test_weapon_classes() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	var solo: Array[Weapon] = [Weapon.new("pistol", 1)]
+	s.weapons = solo
+	s.rebuild_stats()
+	var one: float = s.stats.get_stat("attack_range")
+	check("one weapon of a class pays nothing (%.0f)" % one, s.class_steps(1) == 0)
+	s.add_weapon("rifle", 1)
+	var two: float = s.stats.get_stat("attack_range")
+	check("a second of the class starts the bonus (%.0f -> %.0f)" % [one, two], two > one)
+	s.add_weapon("smg", 1)
+	check("a third raises it again (%.0f)" % s.stats.get_stat("attack_range"), s.stats.get_stat("attack_range") > two)
+	s.sell_weapon(0)
+	check("selling drops back down (%.0f)" % s.stats.get_stat("attack_range"), s.stats.get_stat("attack_range") < s.stats.get_stat("attack_range") + 1.0 and s.stats.get_stat("attack_range") == two)
+	check("the bonus is capped (%d steps at 20 held)" % s.class_steps(20), s.class_steps(20) == WeaponCatalog.CLASS_STEP_CAP)
+
+	# a weapon in two classes counts for both
+	var dual: Array[Weapon] = [Weapon.new("smg", 1), Weapon.new("blade", 1)]
+	s.weapons = dual
+	s.rebuild_stats()
+	var counts: Dictionary = s.class_counts()
+	check("a dual-class weapon counts for both (%s)" % [counts], int(counts.get("swift", 0)) == 2)
+
+	# class bonuses carry a cost, so stacking is a decision
+	var costs := 0
+	for id in WeaponCatalog.CLASSES:
+		for stat in WeaponCatalog.CLASSES[id].per_step:
+			if float(WeaponCatalog.CLASSES[id].per_step[stat]) < 0.0: costs += 1
+	check("most classes cost you something (%d downsides)" % costs, costs >= 3)
+
+	# the shop leans toward classes already held
+	var biased := Shop.new()
+	biased.owned_classes = ["arcane"]
+	var arcane := 0
+	var total := 0
+	for i in range(300):
+		biased.roll(s.rng, 6, 0.0)
+		for offer in biased.offers:
+			if offer.kind != "weapon": continue
+			total += 1
+			if "arcane" in WeaponCatalog.classes_of(String(offer.id)): arcane += 1
+	var share := float(arcane) / maxf(1.0, float(total))
+	var natural := float(WeaponCatalog.of_kinds([]).filter(func(d): return "arcane" in d.get("classes", [])).size()) / float(WeaponCatalog.all().size())
+	check("the shop favours classes you hold (%.0f%% vs %.0f%% by chance)" % [share * 100.0, natural * 100.0], share > natural + 0.1)
 	game.free()
