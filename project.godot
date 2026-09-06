@@ -13,6 +13,7 @@ config_version=5
 config/name="Riftbound Survivors"
 run/main_scene="res://Main.tscn"
 config/features=PackedStringArray("4.7")
+config/icon="res://icon.png"
 
 [display]
 
