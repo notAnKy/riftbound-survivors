@@ -141,4 +141,30 @@ func capture() -> void:
 	game.state = "confirm_quit"
 	await settle(4)
 	await shoot("11_confirm_quit")
+
+	# Co-op: the arena is shared, and only the two screens that ask a player to
+	# choose something are split.
+	game.state = "playing"
+	game.start_run(true)
+	await settle(6)
+	var c = game.session
+	c.seat(0).materials = 61
+	c.seat(1).materials = 44
+	c.round_number = 7
+	c.add_weapon("smg", 1, c.seat(0))
+	c.add_weapon("blade", 2, c.seat(0))
+	c.add_item("focus_lens", c.seat(0))
+	c.add_weapon("wand", 1, c.seat(1))
+	c.add_item("scrap_plate", c.seat(1))
+	c.seat(1).level = 4
+	await shoot("12_coop_arena")
+	c.finish_wave()
+	game.state = "shop"
+	await settle(4)
+	await shoot("13_coop_shop")
+	c.seat(0).upgrades = UpgradeCatalog.roll_choices(c.rng, 6, 0.0)
+	c.seat(1).upgrades = UpgradeCatalog.roll_choices(c.rng, 6, 0.0)
+	game.state = "level_up"
+	await settle(4)
+	await shoot("14_coop_level_up")
 	quit(0)

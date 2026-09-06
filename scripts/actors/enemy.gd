@@ -29,15 +29,20 @@ var charge_dir := Vector2.RIGHT
 var age := 0.0
 var alive := true
 var tint := Color.WHITE
+# Whoever this enemy is currently going for. In solo that is the only player
+# there is; in co-op it is re-picked every frame, so a crowd splits between the
+# two survivors and follows whichever one comes closer.
 var player: Player = null
+var targets: Array = []
 
 # Called straight after add_child(). $Sprite / $Body resolve as soon as the
 # scene is instantiated, so this does not depend on _ready having run.
-func configure(def: Dictionary, round_number: int, target: Player, boss: bool = false, elite: bool = false) -> void:
+func configure(def: Dictionary, round_number: int, who: Array, boss: bool = false, elite: bool = false) -> void:
 	definition = def
 	is_boss = boss
 	is_elite = elite and not boss
-	player = target
+	targets = who
+	player = closest_target()
 	behaviour = String(def.behaviour)
 	tint = def.get("tint", Color.WHITE)
 	if is_boss:
@@ -82,8 +87,26 @@ func apply_danger(danger: int) -> void:
 	speed *= Balance.danger_speed(danger)
 	material_value = int(ceil(float(material_value) * Balance.danger_materials(danger)))
 
+# The nearest one still standing. A downed survivor is not a target -- its body
+# stays in the tree so its inventory survives, and enemies would otherwise pile
+# onto a corpse while the live player went unbothered.
+func closest_target() -> Player:
+	var best: Player = null
+	var best_distance := INF
+	for node in targets:
+		var candidate := node as Player
+		if candidate == null or not is_instance_valid(candidate): continue
+		if not candidate.alive or candidate.downed: continue
+		var distance := global_position.distance_squared_to(candidate.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = candidate
+	return best
+
 func _physics_process(delta: float) -> void:
-	if not alive or player == null or not is_instance_valid(player): return
+	if not alive: return
+	player = closest_target()
+	if player == null: return
 	age += delta
 	hit_flash = maxf(0.0, hit_flash - delta)
 	attack_timer = maxf(0.0, attack_timer - delta)

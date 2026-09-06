@@ -39,6 +39,9 @@ var last_reward := 0
 var rift_effects_enabled := true
 var profile := ProfileManager.new()
 var menu_hover := ""
+# Two players at one machine. The keyboard drives seat 0 and the pad seat 1;
+# solo leaves this false and everything below collapses back to one seat.
+var coop := false
 # Which device the player last used, so every on-screen prompt names the thing
 # actually in their hands instead of always naming a key.
 var input_device := "keyboard":
@@ -49,6 +52,8 @@ var input_device := "keyboard":
 		# a menu it is not steering. Moving the mouse brings it straight back --
 		# MOUSE_MODE_HIDDEN still delivers motion events, unlike CAPTURED.
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if mouse_active() else Input.MOUSE_MODE_HIDDEN
+		# In co-op somebody is always on the keyboard, so the pad taking a turn
+		# must not take the cursor away from them.
 		# Hover must not outlive the switch. sync_hover stops running on a pad,
 		# so a stale menu_hover would leave a row lit that nothing is on.
 		if value == "pad": menu_hover = ""
@@ -63,9 +68,30 @@ var dragging := ""
 # which the last preview blip played.
 var slider_dirty := false
 var slider_tick := -1.0
-# Which row the keyboard is on. Declared before `state` because the setter
-# below resets it, and member initialisers run in declaration order.
-var menu_index := 0
+# One menu cursor per seat: in co-op the two players steer separate lists on
+# separate halves of the screen. Declared before `state` because the setter
+# below resets them, and member initialisers run in declaration order.
+var cursors: Array[int] = [0, 0]
+
+# Seat 0's cursor under its old name, for every solo path and the whole suite.
+var menu_index: int:
+	get: return cursors[0]
+	set(value): cursors[0] = value
+
+func cursor(at_seat: int) -> int:
+	return cursors[clampi(at_seat, 0, cursors.size() - 1)]
+
+func set_cursor(at_seat: int, value: int) -> void:
+	cursors[clampi(at_seat, 0, cursors.size() - 1)] = value
+
+# Which player an input belongs to. Solo has one seat and everything lands on
+# it; co-op splits by device, which is the whole reason Controls exists.
+func seat_for(device: String) -> int:
+	if not coop: return 0
+	return 1 if device == "pad" else 0
+
+func seat_count() -> int:
+	return 2 if coop else 1
 
 var state := "title":
 	set(value):
@@ -73,11 +99,12 @@ var state := "title":
 		state = value
 		# Landing on a new screen should always start at its first row rather
 		# than wherever the last screen happened to be pointing.
-		menu_index = 0
+		for i in range(cursors.size()): cursors[i] = 0
 		# The shop is the exception: it opens on NEXT WAVE. Enter and Space
 		# have always meant "leave the shop", and starting the cursor on an
 		# offer would turn that muscle memory into an accidental purchase.
-		if value == "shop": menu_index = maxi(0, menu_items().find("go"))
+		if value == "shop":
+			for i in range(cursors.size()): cursors[i] = maxi(0, menu_items(i).find("go"))
 		# A confirmation opens on the harmless answer, so a reflexive Enter or
 		# Cross keeps the run rather than throwing it away.
 		if value == "confirm_quit": menu_index = maxi(0, menu_items().find("keep_playing"))
@@ -156,18 +183,18 @@ func sync_hover(point: Vector2) -> void:
 # Whether the mouse is currently the thing driving. Both the cursor and the
 # hover sync hang off this, so they can never disagree about who is in control.
 func mouse_active() -> bool:
-	return input_device != "pad"
+	return coop or input_device != "pad"
 
-func menu_items() -> Array[String]:
+func menu_items(at_seat: int = 0) -> Array[String]:
 	var items: Array[String] = []
 	match state:
-		"title": items.assign(["play", "armory", "settings", "quit"])
+		"title": items.assign(["play", "coop", "armory", "settings", "quit"])
 		"settings", "settings_pause": items.assign(["sfx", "music", "rift", "fullscreen", "back"])
 		"paused": items.assign(["resume", "settings", "menu"])
 		"confirm_quit": items.assign(["quit_run", "keep_playing"])
 		"level_up":
 			if session == null: return items
-			for i in range(session.upgrades.size()): items.append("upgrade_%d" % i)
+			for i in range(session.seat(at_seat).upgrades.size()): items.append("upgrade_%d" % i)
 		"shop":
 			if session == null: return items
 			# In drawing order, which is what makes left and right feel like
@@ -175,20 +202,20 @@ func menu_items() -> Array[String]:
 			for i in range(GameUI.SHOP_CARDS): items.append("buy_%d" % i)
 			items.append("reroll")
 			items.append("go")
-			for i in range(session.weapons.size()):
+			for i in range(session.seat(at_seat).weapons.size()):
 				items.append("sell_%d" % i)
-				if session.can_combine(i): items.append("combine_%d" % i)
+				if session.can_combine(i, at_seat): items.append("combine_%d" % i)
 	return items
 
 # The shop is drawn as three bands -- the offers, the two buttons, then the
 # weapon slots -- so up and down move between them rather than crawling the
 # whole list one card at a time.
-func menu_groups() -> Array:
+func menu_groups(at_seat: int = 0) -> Array:
 	if state != "shop": return []
 	var offers: Array[int] = []
 	var buttons: Array[int] = []
 	var slots: Array[int] = []
-	var items := menu_items()
+	var items := menu_items(at_seat)
 	for i in range(items.size()):
 		if items[i].begins_with("buy_"): offers.append(i)
 		elif items[i].begins_with("sell_") or items[i].begins_with("combine_"): slots.append(i)
@@ -198,58 +225,61 @@ func menu_groups() -> Array:
 		if not group.is_empty(): groups.append(group)
 	return groups
 
-func move_menu(step: int) -> void:
-	var items := menu_items()
+func move_menu(step: int, at_seat: int = 0) -> void:
+	var items := menu_items(at_seat)
 	if items.is_empty(): return
 	audio.play("ui_move", -5.0)
-	menu_index = wrapi(menu_index + step, 0, items.size())
+	set_cursor(at_seat, wrapi(cursor(at_seat) + step, 0, items.size()))
 
-func focused_action() -> String:
-	var items := menu_items()
-	return items[menu_index] if menu_index >= 0 and menu_index < items.size() else ""
+func focused_action(at_seat: int = 0) -> String:
+	var items := menu_items(at_seat)
+	var index := cursor(at_seat)
+	return items[index] if index >= 0 and index < items.size() else ""
 
 # Up and down on a screen laid out across the display. Keeps the column, so
 # stepping from the third offer down to the slots lands near where the eye
 # already is rather than back at the start of the band.
-func jump_group(step: int) -> void:
-	var groups := menu_groups()
+func jump_group(step: int, at_seat: int = 0) -> void:
+	var groups := menu_groups(at_seat)
 	if groups.is_empty():
-		move_menu(step)
+		move_menu(step, at_seat)
 		return
 	var here := 0
 	var column := 0
 	for g in range(groups.size()):
-		var found: int = (groups[g] as Array).find(menu_index)
+		var found: int = (groups[g] as Array).find(cursor(at_seat))
 		if found >= 0:
 			here = g
 			column = found
 	var target: Array = groups[wrapi(here + step, 0, groups.size())]
 	audio.play("ui_move", -5.0)
-	menu_index = int(target[mini(column, target.size() - 1)])
+	set_cursor(at_seat, int(target[mini(column, target.size() - 1)]))
 
 # One directional press, resolved against the way this screen is laid out.
 # `vertical` is the axis the press came from, not the axis it ends up moving on.
-func move_focus(step: int, vertical: bool) -> void:
+func move_focus(step: int, vertical: bool, at_seat: int = 0) -> void:
 	if state in LIST_STATES:
 		if vertical:
-			move_menu(step)
+			move_menu(step, at_seat)
 			return
 		# Sideways on a vertical list adjusts the focused row instead: a volume
 		# bar slides, and anything else simply activates.
-		var row := focused_action()
+		var row := focused_action(at_seat)
 		if row in SLIDER_ROWS: nudge_slider(row, SLIDER_STEP * float(step))
-		else: activate_menu()
+		else: activate_menu(at_seat)
 		return
-	if vertical: jump_group(step)
-	else: move_menu(step)
+	if vertical: jump_group(step, at_seat)
+	else: move_menu(step, at_seat)
 
-func activate_menu() -> void:
+func activate_menu(at_seat: int = 0) -> void:
 	audio.play("ui_click", -2.0)
-	var items := menu_items()
-	if menu_index >= 0 and menu_index < items.size():
-		handle_menu_action(items[menu_index])
+	var items := menu_items(at_seat)
+	var index := cursor(at_seat)
+	if index >= 0 and index < items.size():
+		handle_menu_action(items[index], at_seat)
 
-func start_run() -> void:
+func start_run(two_player: bool = false) -> void:
+	coop = two_player
 	if not profile.is_gun_unlocked(selected_gun):
 		if not profile.unlock_gun(selected_gun, int(GunCatalog.get_gun(selected_gun).cost)): return
 	if not profile.is_character_unlocked(selected_character):
@@ -257,6 +287,7 @@ func start_run() -> void:
 	session.selected_gun = selected_gun
 	session.selected_character = selected_character
 	session.danger = danger
+	session.coop = coop
 	session.reset_run()
 	session.apply_character(selected_character)
 	state = "playing"
@@ -283,30 +314,35 @@ func open_settings() -> void:
 func leave_settings() -> void:
 	state = "paused" if state == "settings_pause" else "title"
 
-func leave_shop() -> void:
+# Both seats have to press NEXT WAVE, or one player would drag the other out of
+# the shop mid-purchase. The button reads READY for whoever has already pressed.
+func leave_shop(at_seat: int = 0) -> void:
+	if not session.mark_ready(at_seat): return
 	session.begin_round()
 	state = "playing"
 
-func handle_menu_action(action: String) -> void:
+func handle_menu_action(action: String, at_seat: int = 0) -> void:
 	if action.begins_with("buy_"):
-		session.buy(int(action.trim_prefix("buy_")))
+		session.buy(int(action.trim_prefix("buy_")), at_seat)
+		clamp_focus(at_seat)
 		return
 	if action.begins_with("sell_"):
-		session.sell_weapon(int(action.trim_prefix("sell_")))
-		clamp_focus()
+		session.sell_weapon(int(action.trim_prefix("sell_")), at_seat)
+		clamp_focus(at_seat)
 		return
 	if action.begins_with("combine_"):
-		session.combine_weapon(int(action.trim_prefix("combine_")))
-		clamp_focus()
+		session.combine_weapon(int(action.trim_prefix("combine_")), at_seat)
+		clamp_focus(at_seat)
 		return
 	if action.begins_with("danger_"):
 		set_danger(int(action.trim_prefix("danger_")))
 		return
 	if action.begins_with("upgrade_"):
-		choose_upgrade(int(action.trim_prefix("upgrade_")))
+		choose_upgrade(int(action.trim_prefix("upgrade_")), at_seat)
 		return
 	match action:
-		"play": start_run()
+		"play": start_run(false)
+		"coop": start_run(true)
 		"armory": state = "armory"
 		"settings": open_settings()
 		"sfx", "music": set_slider(action, 0.0 if slider_value(action) > 0.0 else 0.7)
@@ -318,22 +354,24 @@ func handle_menu_action(action: String) -> void:
 		"quit_run": state = "title"
 		"keep_playing": state = "paused"
 		"back": leave_back()
-		"reroll": session.reroll_shop()
-		"go": leave_shop()
+		"reroll": session.reroll_shop(at_seat)
+		"go": leave_shop(at_seat)
 		"quit": get_tree().quit()
 
 # Taking a level-up reward. A level can be gained during the shop, and dropping
 # straight back to "playing" from there would resume the wave with the shop
 # skipped, so where this lands depends on what the session was doing.
-func choose_upgrade(index: int) -> void:
-	if index < 0 or index >= session.upgrades.size(): return
-	session.choose_upgrade(index)
+func choose_upgrade(index: int, at_seat: int = 0) -> void:
+	session.choose_upgrade(index, at_seat)
+	# The overlay stays up while the other player still has a choice in front of
+	# them -- in co-op both can level on the same pickup.
+	if session.anyone_choosing(): return
 	state = "shop" if session.round_phase == "shop" else "playing"
 
 # Selling or merging shortens the rack, and with it the shop's row list, so the
 # cursor has to be brought back inside the list it is pointing into.
-func clamp_focus() -> void:
-	menu_index = clampi(menu_index, 0, maxi(0, menu_items().size() - 1))
+func clamp_focus(at_seat: int = 0) -> void:
+	set_cursor(at_seat, clampi(cursor(at_seat), 0, maxi(0, menu_items(at_seat).size() - 1)))
 
 func cycle_character(step: int) -> void:
 	selected_character = wrapi(selected_character + step, 0, CharacterCatalog.all().size())
@@ -491,7 +529,7 @@ func poll_stick(delta: float) -> void:
 
 # Everything the two devices share. Returns whether the verb was consumed, so a
 # screen's own letter shortcuts only ever see what is left over.
-func handle_verb(verb: String) -> bool:
+func handle_verb(verb: String, at_seat: int = 0) -> bool:
 	if verb == "": return false
 	# Options on a pad is a dedicated pause, so it works from inside the fight
 	# without also being the button that backs out of menus.
@@ -505,10 +543,10 @@ func handle_verb(verb: String) -> bool:
 				state = "paused"
 				return true
 			"alt":
-				session.dash()
+				session.dash(at_seat)
 				return true
 			"special":
-				session.rift_nova()
+				session.rift_nova(at_seat)
 				return true
 		return false
 	if state == "armory":
@@ -535,22 +573,22 @@ func handle_verb(verb: String) -> bool:
 	if state in LIST_STATES or state in ROW_STATES:
 		match verb:
 			"nav_up":
-				move_focus(-1, true)
+				move_focus(-1, true, at_seat)
 				return true
 			"nav_down":
-				move_focus(1, true)
+				move_focus(1, true, at_seat)
 				return true
 			"nav_left":
-				move_focus(-1, false)
+				move_focus(-1, false, at_seat)
 				return true
 			"nav_right":
-				move_focus(1, false)
+				move_focus(1, false, at_seat)
 				return true
 			"confirm":
-				activate_menu()
+				activate_menu(at_seat)
 				return true
 	if verb == "alt" and state == "shop":
-		session.reroll_shop()
+		session.reroll_shop(at_seat)
 		return true
 	if verb == "back":
 		match state:
@@ -573,7 +611,7 @@ func handle_verb(verb: String) -> bool:
 	if verb == "confirm":
 		match state:
 			"game_over":
-				start_run()
+				start_run(coop)
 				return true
 			"victory":
 				state = "title"
@@ -600,7 +638,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		handle_menu_action(clicked)
 		return
 	if event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed:
-		handle_verb(pad_verb((event as InputEventJoypadButton).button_index))
+		handle_verb(pad_verb((event as InputEventJoypadButton).button_index), seat_for("pad"))
 		return
 	if not (event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo): return
 	var key := event as InputEventKey
@@ -614,9 +652,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Space has always meant "leave the shop", whatever the cursor happens to be
 	# resting on, so it is answered before it can be read as a plain confirm.
 	if state == "shop" and key.keycode == KEY_SPACE:
-		leave_shop()
+		leave_shop(seat_for("keyboard"))
 		return
-	if handle_verb(key_verb(key.keycode)): return
+	if handle_verb(key_verb(key.keycode), seat_for("keyboard")): return
 	# What is left is each screen's own letter shortcuts. Arrows, Enter, Space
 	# and Escape never reach here -- they are verbs, and work on a pad too.
 	if state == "title":
@@ -636,10 +674,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if key.keycode == KEY_S: open_settings()
 		elif key.keycode == KEY_Q: state = "confirm_quit"
 	elif state == "shop":
-		if key.keycode >= KEY_1 and key.keycode <= KEY_4: session.buy(key.keycode - KEY_1)
-		elif key.keycode == KEY_R: session.reroll_shop()
+		if key.keycode >= KEY_1 and key.keycode <= KEY_4: session.buy(key.keycode - KEY_1, seat_for("keyboard"))
+		elif key.keycode == KEY_R: session.reroll_shop(seat_for("keyboard"))
 	elif state == "level_up":
-		if key.keycode >= KEY_1 and key.keycode <= KEY_4: choose_upgrade(key.keycode - KEY_1)
+		if key.keycode >= KEY_1 and key.keycode <= KEY_4: choose_upgrade(key.keycode - KEY_1, seat_for("keyboard"))
 	elif state == "playing":
-		if key.keycode == KEY_Q: session.dash()
-		elif key.keycode == KEY_E: session.rift_nova()
+		if key.keycode == KEY_Q: session.dash(seat_for("keyboard"))
+		elif key.keycode == KEY_E: session.rift_nova(seat_for("keyboard"))

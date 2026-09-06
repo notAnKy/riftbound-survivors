@@ -23,6 +23,13 @@ var last_move := Vector2.RIGHT
 var hit_flash := 0.0
 var alive := true
 var heal_flash := 0.0
+# Which device steers this body. "any" in solo; in co-op each seat is pinned
+# to one device so the two players cannot drag each other around.
+var input_source := "any"
+# Down, not dead: the body stays in the tree so the survivor's rack and stats
+# are untouched, but it stops moving, colliding, magnetising and drawing until
+# the next round brings it back.
+var downed := false
 var tint := Color.WHITE
 var rng := RandomNumberGenerator.new()
 # Set by the session so the equipped weapons can be drawn orbiting the
@@ -46,6 +53,7 @@ func refresh_pickup_radius() -> void:
 	($Magnet/Shape as CollisionShape2D).shape.radius = BASE_PICKUP_RADIUS + stats.get_stat("pickup_radius")
 
 func _physics_process(delta: float) -> void:
+	if downed: return
 	dash_cooldown = maxf(0.0, dash_cooldown - delta)
 	hit_flash = maxf(0.0, hit_flash - delta)
 	if alive:
@@ -56,7 +64,7 @@ func _physics_process(delta: float) -> void:
 	if hit_flash > 0.0: sprite.modulate = Color(2.2, 0.8, 0.8)
 	elif heal_flash > 0.0: sprite.modulate = Color(0.7, 2.1, 1.2)
 	else: sprite.modulate = tint
-	var direction := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var direction := Controls.vector_for(input_source)
 	if direction != Vector2.ZERO: last_move = direction
 	if dash_time > 0.0:
 		dash_time -= delta
@@ -72,6 +80,7 @@ func _physics_process(delta: float) -> void:
 # Drawn on the player itself, which renders before its Sprite child, so the
 # rack sits behind the character rather than covering it.
 func _draw() -> void:
+	if downed: return
 	var count := weapons.size()
 	if count == 0: return
 	for i in range(count):
@@ -107,6 +116,20 @@ func dash() -> bool:
 	dash_time = DASH_TIME
 	dash_cooldown = DASH_COOLDOWN
 	return true
+
+# Toggling the collision layer is what actually takes a downed player out of
+# the fight: enemies mask PLAYER to find a target, so clearing the layer makes
+# the body invisible to them without removing it from the tree.
+func set_downed(value: bool) -> void:
+	downed = value
+	visible = not value
+	# Deferred: this is reached from hurt(), inside a physics callback, and the
+	# server will not take a collision change while it is flushing queries.
+	set_deferred("collision_layer", 0 if value else Layers.PLAYER)
+	($Magnet as Area2D).set_deferred("monitoring", not value)
+	if not value:
+		alive = true
+		hit_flash = 0.0
 
 func heal(amount: float) -> void:
 	if not alive or amount <= 0.0: return

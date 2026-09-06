@@ -59,6 +59,16 @@ const WAVE_CLEAR_HEAL := 0.22
 # without making a good one heal for nothing. Fraction of the missing bar.
 const WAVE_CLEAR_HEAL_MISSING := 0.12
 
+# Co-op. A downed survivor is revived at the start of the next round, at this
+# fraction of max HP -- going down has to cost something, or throwing yourself at
+# the crowd and waiting for the round to tick over is the safest play.
+const REVIVE_HP := 0.5
+# Enemy health per extra survivor. Two players put out far more than twice one
+# player's damage, because most of the sheet is per-weapon and they carry two
+# racks, so the crowd has to be tougher than a straight doubling of numbers.
+const COOP_ENEMY_HP := 0.45
+const COOP_SPAWN := 0.35
+
 # Shop prices climb per wave. Material income grows far faster than this, so a
 # shallow curve stops the shop mattering by the midgame.
 const SHOP_INFLATION_PER_WAVE := 0.18

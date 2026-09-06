@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 247
+const EXPECTED_CHECKS := 278
 var checks := 0
 
 func _initialize() -> void:
@@ -48,6 +48,10 @@ func bootstrap() -> void:
 	await test_shop_buying()
 	await test_weapon_combining()
 	await test_combine_in_the_shop()
+	await test_coop_two_players()
+	await test_coop_down_and_revive()
+	await test_coop_separate_economies()
+	await test_coop_split_screen()
 	await test_weapon_rack_limit()
 	await test_multi_weapon_output()
 	await test_materials_are_currency_and_xp()
@@ -159,7 +163,7 @@ func test_shot_kills_and_drops() -> void:
 	var target = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(150, 0), false)
 	await step(1)
 	var before: float = target.hp
-	s.add_shot(Vector2.RIGHT, 900.0, 1.0, 5.0, Color.WHITE, 0)
+	s.add_shot(s.me, Vector2.RIGHT, 900.0, 1.0, 5.0, Color.WHITE, 0)
 	await step(20)
 	check("a projectile damages what it hits (%.0f -> %.0f)" % [before, target.hp], is_instance_valid(target) and target.hp < before)
 	target.take_damage(99999.0)
@@ -1085,6 +1089,153 @@ func test_slider_sweeping() -> void:
 		not game.slider_dirty and absf(game.profile.level("sfx_volume") - game.audio.volume) < 0.01)
 	game.free()
 
+# --- co-op: two players, one arena -------------------------------------------
+
+func coop_game() -> Node:
+	var game = load("res://Main.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	game.profile.persist = false
+	game.state = "playing"
+	game.start_run(true)
+	await step(2)
+	return game
+
+func test_coop_two_players() -> void:
+	var game = await coop_game()
+	var s = game.session
+	check("co-op puts two survivors in the arena (%d)" % s.seats(), s.seats() == 2)
+	# The whole reason Controls exists: on one machine, a shared move action
+	# would have each player dragging the other around.
+	check("each pinned to its own device (%s / %s)" % [s.seat(0).device, s.seat(1).device],
+		s.seat(0).device == "keyboard" and s.seat(1).device == "pad")
+	check("and the bodies read those devices",
+		s.seat(0).player.input_source == "keyboard" and s.seat(1).player.input_source == "pad")
+	var apart: float = s.seat(0).player.position.distance_to(s.seat(1).player.position)
+	check("they start apart, not stacked (%.0fpx)" % apart, apart > 100.0)
+	check("with a rack each", not s.seat(1).weapons.is_empty() and s.seat(0).weapons != s.seat(1).weapons)
+	check("the keyboard drives seat 0 and the pad seat 1",
+		game.seat_for("keyboard") == 0 and game.seat_for("pad") == 1)
+
+	# an enemy goes for whoever is closest, and never for somebody who is down
+	clear_field(s)
+	var mob = s.spawn_enemy(EnemyCatalog.all()[0], s.seat(1).player.position + Vector2(50, 0), false)
+	mob.max_hp = 1000000.0
+	mob.hp = mob.max_hp
+	check("an enemy goes for the nearer player", mob.closest_target() == s.seat(1).player)
+	s.seat(1).downed = true
+	s.seat(1).player.set_downed(true)
+	check("and never for one who is down", mob.closest_target() == s.seat(0).player)
+	game.free()
+
+# Nobody loses the run alone: going down is a round out, not the end.
+func test_coop_down_and_revive() -> void:
+	var game = await coop_game()
+	var s = game.session
+	var ended := [false]
+	s.run_ended.connect(func() -> void: ended[0] = true)
+
+	s.seat(0).player.hurt(1000000.0)
+	await step(2)
+	check("a killed player goes down, not out (%s)" % str(ended[0]), s.seat(0).downed and not ended[0])
+	check("and stops being something enemies can hit", s.seat(0).player.collision_layer == 0)
+	check("while the other is still standing", s.seat(1).alive())
+
+	s.finish_wave()
+	s.begin_round()
+	check("surviving the wave revives them (%.0f hp)" % s.seat(0).player.hp,
+		not s.seat(0).downed and s.seat(0).player.alive and s.seat(0).player.hp > 0.0)
+	check("but not at full health, or going down would be free",
+		s.seat(0).player.hp < s.seat(0).player.max_hp)
+	# The collision change is deferred -- set_downed is reached from hurt(),
+	# inside a physics callback -- so it lands on the next frame, not this one.
+	await step(1)
+	check("and they can be hit again", s.seat(0).player.collision_layer != 0)
+
+	s.seat(0).player.hurt(1000000.0)
+	await step(2)
+	check("one down is still not the end", not ended[0])
+	s.seat(1).player.hurt(1000000.0)
+	await step(2)
+	check("the run ends only when both are down", ended[0])
+	game.free()
+
+# Each player earns and spends their own, which is what makes spreading out to
+# collect worth doing.
+func test_coop_separate_economies() -> void:
+	var game = await coop_game()
+	var s = game.session
+	s.on_pickup_collected(50, Pickup.KIND_MATERIAL, s.seat(1))
+	check("materials go to whoever collected them (%d / %d)" % [s.seat(0).materials, s.seat(1).materials],
+		s.seat(0).materials == 0 and s.seat(1).materials == 50)
+	check("and so does the XP (%d / %d)" % [s.seat(0).xp, s.seat(1).xp], s.seat(0).xp == 0 and s.seat(1).xp > 0)
+
+	s.finish_wave()
+	check("each player gets their own board",
+		s.seat(0).shop != s.seat(1).shop and not s.seat(1).shop.offers.is_empty())
+	s.seat(0).materials = 500
+	var before: int = s.seat(1).materials
+	s.buy(0, 0)
+	check("buying spends only that player's materials (%d unchanged)" % s.seat(1).materials,
+		s.seat(0).materials < 500 and s.seat(1).materials == before)
+
+	# one player leaving the shop must not drag the other out mid-purchase
+	game.state = "shop"
+	var wave: int = s.round_number
+	game.leave_shop(0)
+	check("one ready does not start the wave (%s)" % game.state,
+		game.state == "shop" and s.round_number == wave)
+	game.leave_shop(1)
+	check("both ready does (%s, wave %d)" % [game.state, s.round_number],
+		game.state == "playing" and s.round_number == wave + 1)
+
+	# both can level on the same pickup, and the overlay waits for both
+	s.seat(0).upgrades = UpgradeCatalog.roll_choices(s.rng, 1, 0.0)
+	s.seat(1).upgrades = UpgradeCatalog.roll_choices(s.rng, 1, 0.0)
+	game.state = "level_up"
+	game.choose_upgrade(0, 0)
+	check("the overlay waits for the other player (%s)" % game.state, game.state == "level_up")
+	game.choose_upgrade(0, 1)
+	check("and closes once both have chosen (%s)" % game.state, game.state != "level_up")
+	check("each grant landed on its own sheet",
+		not s.seat(0).upgrade_totals.is_empty() and not s.seat(1).upgrade_totals.is_empty())
+	game.free()
+
+# The arena is shared; only the two screens that ask a player to choose are not.
+func test_coop_split_screen() -> void:
+	var game = await coop_game()
+	var s = game.session
+	s.finish_wave()
+	game.state = "shop"
+
+	game.ui.use_pane(0)
+	var left: Rect2 = game.ui.card_rect(0)
+	var left_slots: Rect2 = game.ui.slot_rect(0)
+	game.ui.use_pane(1)
+	var right: Rect2 = game.ui.card_rect(0)
+	check("each board sits on its own half (%.0f / %.0f)" % [left.get_center().x, right.get_center().x],
+		left.end.x <= GameUI.SCREEN.x * 0.5 and right.position.x >= GameUI.SCREEN.x * 0.5)
+	check("and stays inside it", right.end.x <= GameUI.SCREEN.x and left.position.x >= 0.0)
+	# four offers still fit, wrapped rather than shrunk
+	game.ui.use_pane(0)
+	check("the offers wrap into a grid at full size (%s)" % str(game.ui.card_rect(3).position),
+		game.ui.card_rect(3).position.y > game.ui.card_rect(0).position.y
+		and game.ui.card_rect(0).size == GameUI.CARD_SIZE)
+	check("and the weapon slots wrap too",
+		game.ui.slot_rect(5).position.y > left_slots.position.y)
+	# each half answers to its own cursor
+	game.set_cursor(0, game.menu_items(0).find("reroll"))
+	game.set_cursor(1, game.menu_items(1).find("go"))
+	check("the two cursors are independent",
+		game.ui.is_focused("reroll", 0) and not game.ui.is_focused("reroll", 1)
+		and game.ui.is_focused("go", 1))
+	# and the solo layout is untouched
+	game.coop = false
+	game.ui.use_pane(0)
+	check("solo still lays four offers across the display",
+		is_equal_approx(game.ui.card_rect(0).position.y, game.ui.card_rect(3).position.y))
+	game.free()
+
 func test_shop_prices_climb() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 11
@@ -1134,7 +1285,7 @@ func test_melee_archetype() -> void:
 	var behind_hp: float = behind.hp
 	var far_hp: float = far.hp
 	var was: Vector2 = front.position
-	s.swing_melee(blade, front, reach)
+	s.swing_melee(s.me, blade, front, reach)
 	check("a melee swing hits what is in front (%.0f -> %.0f)" % [front_hp, front.hp], front.hp < front_hp)
 	check("it spares what is behind", is_equal_approx(behind.hp, behind_hp))
 	check("and what is out of reach", is_equal_approx(far.hp, far_hp))
@@ -1155,7 +1306,7 @@ func test_orbital_archetype() -> void:
 	var before: float = mob.hp
 	var angle_before: float = orb.orbit
 	for i in range(40):
-		s.tick_orbital(orb, 0.05)
+		s.tick_orbital(s.me, orb, 0.05)
 	check("the orbital travels round (%.2f rad)" % orb.orbit, orb.orbit > angle_before)
 	check("it grinds what it passes over (%.0f -> %.0f)" % [before, mob.hp], mob.hp < before)
 	check("and fires no projectile", s.shots.get_child_count() == 0)
@@ -1168,9 +1319,9 @@ func test_homing_archetype() -> void:
 	var mob = tough_enemy(s, s.player.position + Vector2(0, -300))
 	await step(1)
 	# fired sideways, so only steering can bring it round
-	var shot = s.add_shot(Vector2.RIGHT, 300.0, 3.0, 5.0, Color.WHITE, 0)
+	var shot = s.add_shot(s.me, Vector2.RIGHT, 300.0, 3.0, 5.0, Color.WHITE, 0)
 	shot.chase(mob, 7.0)
-	var straight = s.add_shot(Vector2.RIGHT, 300.0, 3.0, 5.0, Color.WHITE, 0)
+	var straight = s.add_shot(s.me, Vector2.RIGHT, 300.0, 3.0, 5.0, Color.WHITE, 0)
 	await step(14)
 	if is_instance_valid(shot) and is_instance_valid(straight):
 		check("a homing shot turns toward its target (%.2f vs %.2f)" % [shot.velocity.angle(), straight.velocity.angle()], shot.velocity.y < straight.velocity.y - 20.0)

@@ -27,10 +27,25 @@ const PAUSE_TOP := 450.0
 const CONFIRM_TOP := 520.0
 
 const MENU_BUTTON := Vector2(440, 64)
-const MENU_TOP := 520.0
+const MENU_TOP := 470.0
 const MENU_STEP := 84.0
 
+# Co-op gives each player half the display. The cards and slots keep their size
+# and wrap into a grid rather than shrinking -- that is the difference between a
+# readable shop and a small one, and half of 1920 still fits two 340px cards.
+const COOP_COLUMNS := 2
+const COOP_SLOT_COLUMNS := 3
+const COOP_CARD_TOP := 200.0
+const COOP_BUTTON_TOP := 740.0
+const COOP_SLOT_TOP := 856.0
+const COOP_UPGRADE_TOP := 300.0
+
 var game: GameController
+
+# The region the current screen is laid out into. Every rect helper below reads
+# it, so the split is expressed in exactly one place: set the pane, draw the
+# screen, and the same code lays out a half as readily as the whole display.
+var pane := Rect2(Vector2.ZERO, SCREEN)
 var font: Font
 var display: Font
 
@@ -94,22 +109,50 @@ func text_right(right_x: float, y: float, text: String, size: int, color: Color)
 
 func row_rect(index: int, count: int, size: Vector2, top: float, gap: float) -> Rect2:
 	var total := size.x * count + gap * (count - 1)
-	return Rect2(Vector2((SCREEN.x - total) * 0.5 + index * (size.x + gap), top), size)
+	return Rect2(Vector2(pane.position.x + (pane.size.x - total) * 0.5 + index * (size.x + gap),
+		pane.position.y + top), size)
+
+# The same, wrapped into rows of `columns`. Co-op is the only caller: half the
+# width will not take four cards across, but it takes two, twice.
+func grid_rect(index: int, count: int, columns: int, size: Vector2, top: float, gap: float) -> Rect2:
+	var across := mini(columns, maxi(1, count))
+	var total := size.x * across + gap * (across - 1)
+	var col := index % columns
+	var row := index / columns
+	return Rect2(Vector2(pane.position.x + (pane.size.x - total) * 0.5 + float(col) * (size.x + gap),
+		pane.position.y + top + float(row) * (size.y + gap)), size)
+
+# Sets the region the helpers lay out into. Solo is the whole display; co-op is
+# one half per player. This is the only place the split screen exists.
+func use_pane(at_seat: int) -> void:
+	if not game.coop:
+		pane = Rect2(Vector2.ZERO, SCREEN)
+		return
+	pane = Rect2(Vector2(SCREEN.x * 0.5 * float(at_seat), 0.0), Vector2(SCREEN.x * 0.5, SCREEN.y))
 
 func card_rect(index: int) -> Rect2:
-	return row_rect(index, SHOP_CARDS, CARD_SIZE, CARD_TOP, CARD_GAP)
+	if not game.coop: return row_rect(index, SHOP_CARDS, CARD_SIZE, CARD_TOP, CARD_GAP)
+	return grid_rect(index, SHOP_CARDS, COOP_COLUMNS, CARD_SIZE, COOP_CARD_TOP, CARD_GAP)
 
 # The level-up cards are laid out the same way, but there are as many of them
 # as the roll produced rather than a fixed four.
-func upgrade_rect(index: int) -> Rect2:
-	var count: int = maxi(1, game.session.upgrades.size())
-	return row_rect(index, count, CARD_SIZE, UPGRADE_TOP, CARD_GAP)
+func upgrade_rect(index: int, at_seat: int = 0) -> Rect2:
+	var count: int = maxi(1, game.session.seat(at_seat).upgrades.size())
+	if not game.coop: return row_rect(index, count, CARD_SIZE, UPGRADE_TOP, CARD_GAP)
+	return grid_rect(index, count, COOP_COLUMNS, CARD_SIZE, COOP_UPGRADE_TOP, CARD_GAP)
 
 func slot_count() -> int:
 	return game.session.weapon_slots
 
 func slot_rect(index: int) -> Rect2:
-	return row_rect(index, slot_count(), SLOT_SIZE, SLOT_TOP, SLOT_GAP)
+	if not game.coop: return row_rect(index, slot_count(), SLOT_SIZE, SLOT_TOP, SLOT_GAP)
+	return grid_rect(index, slot_count(), COOP_SLOT_COLUMNS, SLOT_SIZE, COOP_SLOT_TOP, SLOT_GAP)
+
+func slots_bottom() -> float:
+	return slot_rect(slot_count() - 1).end.y
+
+func button_top() -> float:
+	return COOP_BUTTON_TOP if game.coop else BUTTON_TOP
 
 # The right end of a weapon slot. The rest of the slot still sells, so the two
 # actions never share a pixel.
@@ -118,10 +161,10 @@ func slot_combine_rect(index: int) -> Rect2:
 	return Rect2(rect.end.x - 86.0, rect.position.y + 16.0, 78.0, 30.0)
 
 func reroll_rect() -> Rect2:
-	return Rect2(Vector2(card_rect(0).position.x, BUTTON_TOP), BUTTON_SIZE)
+	return Rect2(Vector2(card_rect(0).position.x, button_top()), BUTTON_SIZE)
 
 func go_rect() -> Rect2:
-	return Rect2(Vector2(card_rect(SHOP_CARDS - 1).end.x - BUTTON_SIZE.x, BUTTON_TOP), BUTTON_SIZE)
+	return Rect2(Vector2(card_rect(SHOP_CARDS - 1).end.x - BUTTON_SIZE.x, button_top()), BUTTON_SIZE)
 
 func menu_button_rect(index: int) -> Rect2:
 	return Rect2(Vector2((SCREEN.x - MENU_BUTTON.x) * 0.5, MENU_TOP + index * MENU_STEP), MENU_BUTTON)
@@ -153,17 +196,23 @@ func confirm_row_rect(index: int) -> Rect2:
 
 # A row is lit either because the mouse is over it or because the keyboard
 # cursor is on it; the controller keeps those two in step.
-func is_focused(action: String) -> bool:
-	if game.menu_hover == action: return true
-	var items := game.menu_items()
-	return game.menu_index >= 0 and game.menu_index < items.size() and items[game.menu_index] == action
+func is_focused(action: String, at_seat: int = 0) -> bool:
+	# Hover belongs to the mouse, and the mouse is always seat 0's.
+	if at_seat == 0 and game.menu_hover == action: return true
+	var items := game.menu_items(at_seat)
+	var index := game.cursor(at_seat)
+	return index >= 0 and index < items.size() and items[index] == action
 
 func gun_rect(index: int) -> Rect2:
 	return row_rect(index, 3, Vector2(400, 240), 280.0, 40.0)
 
 func menu_action_at(point: Vector2) -> String:
+	# The mouse is seat 0's, so everything below hit-tests against seat 0's pane.
+	use_pane(0)
 	if game.state == "title":
-		var actions := ["play", "armory", "settings", "quit"]
+		# Straight off menu_items: this once carried its own copy of the rows,
+		# and adding one sent every click to the wrong entry.
+		var actions := game.menu_items()
 		for i in range(actions.size()):
 			if menu_button_rect(i).has_point(point): return actions[i]
 	elif game.state == "armory":
@@ -185,14 +234,14 @@ func menu_action_at(point: Vector2) -> String:
 		for i in range(rows.size()):
 			if confirm_row_rect(i).has_point(point): return rows[i]
 	elif game.state == "level_up":
-		for i in range(game.session.upgrades.size()):
-			if upgrade_rect(i).has_point(point): return "upgrade_%d" % i
+		for i in range(game.session.seat(0).upgrades.size()):
+			if upgrade_rect(i, 0).has_point(point): return "upgrade_%d" % i
 	elif game.state == "shop":
 		for i in range(SHOP_CARDS):
 			if card_rect(i).has_point(point): return "buy_%d" % i
-		for i in range(game.session.weapons.size()):
+		for i in range(game.session.seat(0).weapons.size()):
 			# Tested first: the chip sits inside the slot, and the slot sells.
-			if game.session.can_combine(i) and slot_combine_rect(i).has_point(point):
+			if game.session.can_combine(i, 0) and slot_combine_rect(i).has_point(point):
 				return "combine_%d" % i
 			if slot_rect(i).has_point(point): return "sell_%d" % i
 		if reroll_rect().has_point(point): return "reroll"
@@ -301,17 +350,29 @@ func fill_screen(color: Color) -> void:
 
 # --- title and armory --------------------------------------------------------
 
+const TITLE_LABELS := {
+	"play": "PLAY", "coop": "CO-OP  (2 PLAYERS)", "armory": "ARMORY",
+	"settings": "SETTINGS", "quit": "QUIT GAME",
+}
+const TITLE_COLORS := {
+	"play": Color("69f4d4"), "coop": Color("ffcf77"), "armory": Color("bf8cff"),
+	"settings": Color("82b7ff"), "quit": Color("ff718b"),
+}
+
 func draw_title() -> void:
 	draw_menu_background()
 	heading(SCREEN.x * 0.5, 300, "RIFTBOUND", 68, Color("e8efff"))
 	heading(SCREEN.x * 0.5, 378, "SURVIVORS", 68, Color("ffcf77"))
 	text_centered(SCREEN.x * 0.5, 424, "An arcade survival run", 20, Color("aabce1"))
-	var buttons := [["PLAY", "play", Color("69f4d4")], ["ARMORY", "armory", Color("bf8cff")], ["SETTINGS", "settings", Color("82b7ff")], ["QUIT GAME", "quit", Color("ff718b")]]
-	for i in range(buttons.size()):
-		draw_menu_button(menu_button_rect(i), buttons[i][0], buttons[i][1], buttons[i][2])
-	text_centered(SCREEN.x * 0.5, 912, "COINS  %d" % game.profile.coins(), 20, Color("ffcf77"))
-	draw_hint_row(SCREEN.x * 0.5, 958, [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"]])
-	if not on_pad(): text_centered(SCREEN.x * 0.5, 1012, "or click  •  P  A  S  Q", 15, Color("8ea4cb"))
+	# Drawn straight off menu_items, so a new entry cannot appear in one list and
+	# not the other.
+	var rows := game.menu_items()
+	for i in range(rows.size()):
+		draw_menu_button(menu_button_rect(i), TITLE_LABELS.get(rows[i], rows[i]),
+			rows[i], TITLE_COLORS.get(rows[i], Color("aabce1")))
+	text_centered(SCREEN.x * 0.5, 900, "COINS  %d" % game.profile.coins(), 20, Color("ffcf77"))
+	draw_hint_row(SCREEN.x * 0.5, 946, [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"]])
+	if not on_pad(): text_centered(SCREEN.x * 0.5, 1000, "or click  •  P  A  S  Q", 15, Color("8ea4cb"))
 
 func draw_armory() -> void:
 	draw_menu_background()
@@ -359,8 +420,8 @@ func draw_menu_background() -> void:
 	draw_arc(Vector2(SCREEN.x * 0.5, 300), 150.0, 0.2, TAU - 0.2, 32, Color(0.62,0.42,1.0,0.25), 10.0)
 	draw_arc(Vector2(SCREEN.x * 0.5, 300), 108.0, 0.0, TAU, 28, Color(0.27,0.88,0.94,0.16), 5.0)
 
-func draw_menu_button(rect: Rect2, label: String, action: String, color: Color) -> void:
-	var hovered := is_focused(action)
+func draw_menu_button(rect: Rect2, label: String, action: String, color: Color, at_seat: int = 0) -> void:
+	var hovered := is_focused(action, at_seat)
 	var pulse := (sin(Time.get_ticks_msec() * 0.008) + 1.0) * 0.5
 	var shown_rect := rect.grow(4.0 + pulse * 2.0) if hovered else rect
 	draw_panel(shown_rect, Color(color.r, color.g, color.b, 0.16) if hovered else Color("17233e"), color, 3.0 if hovered else 1.5)
@@ -372,10 +433,13 @@ func draw_hud() -> void:
 	var s := game.session
 	var right := SCREEN.x - MARGIN
 	text_at(Vector2(MARGIN, 48), "RIFTBOUND SURVIVORS", 26, Color("e8efff"))
-	text_at(Vector2(MARGIN, 84), "MATERIALS  %d" % s.materials, 20, Color("8cffd1"))
-	# Weapon rack, so the effect of a shop purchase is visible in the fight.
+	if not game.coop:
+		text_at(Vector2(MARGIN, 84), "MATERIALS  %d" % s.materials, 20, Color("8cffd1"))
+	# Weapon rack, so the effect of a shop purchase is visible in the fight. In
+	# co-op it is dropped: two racks across the top is unreadable, and each
+	# player can already see their own weapons orbiting them.
 	var x := MARGIN + 300.0
-	for weapon in s.weapons:
+	for weapon in (s.weapons if not game.coop else ([] as Array[Weapon])):
 		var label: String = weapon.display_name()
 		var width := text_width(label, 14) + 42.0
 		draw_panel(Rect2(x, 62, width, 30), Color(0.09,0.13,0.24,0.85), weapon.def().color, 1.0)
@@ -394,49 +458,100 @@ func draw_hud() -> void:
 	# Centred so the row ends flush with the right margin, and lifted clear of
 	# the arena border at Arena.BOUNDS.y -- a badge is taller than the line of
 	# text it replaced, and at 112 the border cut straight through it.
-	draw_hint_row(right - hints_width(abilities, 15) * 0.5, 100, abilities, 15)
+	if not game.coop:
+		draw_hint_row(right - hints_width(abilities, 15) * 0.5, 100, abilities, 15)
 	var bar_y := SCREEN.y - 34.0
-	draw_rect(Rect2(MARGIN, bar_y, 520, 14), Color("3a2844"))
-	draw_rect(Rect2(MARGIN, bar_y, 520 * s.player_hp / s.player_max_hp, 14), Color("ff5f7a"))
-	text_at(Vector2(MARGIN, bar_y - 10), "HP %d / %d" % [s.player_hp, s.player_max_hp], 16, Color("f2d8e0"))
-	draw_rect(Rect2(right - 520, bar_y, 520, 14), Color("1f3e4c"))
-	draw_rect(Rect2(right - 520, bar_y, 520 * float(s.xp) / maxf(1.0, float(s.xp_to_next)), 14), Color("60e8d2"))
-	text_at(Vector2(right - 520, bar_y - 10), "LEVEL %d  •  XP %d / %d" % [s.level, s.xp, s.xp_to_next], 16, Color("d0fff7"))
+	if game.coop:
+		draw_coop_vitals(s, bar_y)
+	else:
+		draw_rect(Rect2(MARGIN, bar_y, 520, 14), Color("3a2844"))
+		draw_rect(Rect2(MARGIN, bar_y, 520 * s.player_hp / s.player_max_hp, 14), Color("ff5f7a"))
+		text_at(Vector2(MARGIN, bar_y - 10), "HP %d / %d" % [s.player_hp, s.player_max_hp], 16, Color("f2d8e0"))
+		draw_rect(Rect2(right - 520, bar_y, 520, 14), Color("1f3e4c"))
+		draw_rect(Rect2(right - 520, bar_y, 520 * float(s.xp) / maxf(1.0, float(s.xp_to_next)), 14), Color("60e8d2"))
+		text_at(Vector2(right - 520, bar_y - 10), "LEVEL %d  •  XP %d / %d" % [s.level, s.xp, s.xp_to_next], 16, Color("d0fff7"))
 	if s.round_number % 5 == 0 and s.round_phase == "combat" and s.round_time_left > s.round_length - 3.0:
 		text_centered(SCREEN.x * 0.5, 170, "BOSS RIFT OPEN", 24, Color("ffcf77"))
+
+# Two players, two sets of vitals. Seat 0 reads from the left edge and seat 1
+# from the right -- the same halves they get in the shop, so which corner is
+# yours never has to be relearned.
+func draw_coop_vitals(s: GameSession, bar_y: float) -> void:
+	for i in range(s.seats()):
+		var who := s.seat(i)
+		var width := 520.0
+		var left: float = MARGIN if i == 0 else SCREEN.x - MARGIN - width
+		var tint := Color("ff5f7a") if i == 0 else Color("ffb15f")
+		var hp: float = who.player.hp if is_instance_valid(who.player) else 0.0
+		var top: float = who.player.max_hp if is_instance_valid(who.player) else 1.0
+		draw_rect(Rect2(left, bar_y, width, 14), Color("3a2844"))
+		if not who.downed:
+			draw_rect(Rect2(left, bar_y, width * clampf(hp / maxf(top, 1.0), 0.0, 1.0), 14), tint)
+		var label := "DOWN  —  back next wave" if who.downed else "HP %d / %d" % [hp, top]
+		text_at(Vector2(left, bar_y - 10), "P%d   %s" % [i + 1, label], 16,
+			Color("ff9aa8") if who.downed else Color("f2d8e0"))
+		draw_rect(Rect2(left, bar_y - 44, width, 8), Color("1f3e4c"))
+		draw_rect(Rect2(left, bar_y - 44, width * float(who.xp) / maxf(1.0, float(who.xp_to_next)), 8), Color("60e8d2"))
+		var dash: float = who.player.dash_cooldown if is_instance_valid(who.player) else 0.0
+		text_at(Vector2(left, bar_y - 52), "LVL %d   •   MATERIALS %d   •   DASH %s   •   NOVA %s" % [
+			who.level, who.materials,
+			"READY" if dash <= 0.0 else "%.0fs" % dash,
+			"READY" if who.nova_cooldown <= 0.0 else "%.0fs" % who.nova_cooldown], 14, Color("d0fff7"))
 
 # --- shop --------------------------------------------------------------------
 
 func draw_shop() -> void:
 	var s := game.session
 	fill_screen(Color(0.02,0.03,0.08,0.94))
-	heading(SCREEN.x * 0.5, 120, "WAVE %d CLEARED" % s.round_number, 34, Color("69f4d4"))
-	text_centered(SCREEN.x * 0.5, 158, "Spend materials, then head back in", 18, Color("aabce1"))
-	text_at(Vector2(MARGIN, 130), "MATERIALS  %d" % s.materials, 26, Color("8cffd1"))
-	for i in range(SHOP_CARDS):
-		draw_offer_card(i, s)
-	var reroll_cost: int = s.shop.reroll_cost()
-	draw_menu_button(reroll_rect(), "REROLL  %d" % reroll_cost, "reroll", Color("82b7ff") if s.materials >= reroll_cost else Color("54617d"))
-	draw_menu_button(go_rect(), "NEXT WAVE", "go", Color("69f4d4"))
-	# Sits in the gap between the two buttons, which is empty on every layout
-	# because they are pinned to the outer edges of the offer row.
-	var hints: Array = [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"], ["alt", "R", "REROLL"]]
-	if not on_pad(): hints.append(["confirm", "SPACE", "NEXT WAVE"])
-	draw_hint_row(SCREEN.x * 0.5, BUTTON_TOP + 34.0, hints, 15)
-	draw_class_bonuses(s)
-	draw_weapon_slots(s)
-	draw_owned_items(s)
-	draw_stat_strip(s)
+	for i in range(s.seats()):
+		use_pane(i)
+		draw_shop_pane(s, s.seat(i), i)
+	use_pane(0)
+	if not game.coop: return
+	# A hairline between the boards, so it reads as two shops rather than one
+	# very wide one.
+	draw_rect(Rect2(SCREEN.x * 0.5 - 1.0, 90.0, 2.0, SCREEN.y - 180.0), Color(0.35, 0.45, 0.70, 0.35))
 
-func draw_offer_card(index: int, s: GameSession) -> void:
+func draw_shop_pane(s: GameSession, who: Survivor, at_seat: int) -> void:
+	var centre := pane.get_center().x
+	var left := pane.position.x + MARGIN
+	var title := "P%d  —  WAVE %d CLEARED" % [at_seat + 1, s.round_number] if game.coop else "WAVE %d CLEARED" % s.round_number
+	heading(centre, 108 if game.coop else 120, title, 28 if game.coop else 34, Color("69f4d4"))
+	if not game.coop:
+		text_centered(centre, 158, "Spend materials, then head back in", 18, Color("aabce1"))
+	text_at(Vector2(left, 148 if game.coop else 130), "MATERIALS  %d" % who.materials, 24, Color("8cffd1"))
+	for i in range(SHOP_CARDS):
+		draw_offer_card(i, s, who, at_seat)
+	var reroll_cost: int = who.shop.reroll_cost()
+	draw_menu_button(reroll_rect(), "REROLL  %d" % reroll_cost, "reroll",
+		Color("82b7ff") if who.materials >= reroll_cost else Color("54617d"), at_seat)
+	# Both seats have to press it, so the button says which of them already has.
+	draw_menu_button(go_rect(), "WAITING  ..." if who.ready else "NEXT WAVE", "go",
+		Color("54617d") if who.ready else Color("69f4d4"), at_seat)
+	# Sits in the gap between the two buttons, which is empty on every layout
+	# because they are pinned to the outer edges of the offer block.
+	var hints: Array = [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"], ["alt", "R", "REROLL"]]
+	if not on_pad() and not game.coop: hints.append(["confirm", "SPACE", "NEXT WAVE"])
+	if not game.coop:
+		draw_hint_row(centre, button_top() + 34.0, hints, 15)
+	elif at_seat == 0:
+		# Half a pane leaves no room between REROLL and NEXT WAVE, so the
+		# prompts move to the top centre and are drawn once for both boards.
+		draw_hint_row(SCREEN.x * 0.5, 44.0, hints, 15)
+	draw_class_bonuses(s, who)
+	draw_weapon_slots(s, who, at_seat)
+	draw_owned_items(who)
+	draw_stat_strip(who)
+
+func draw_offer_card(index: int, s: GameSession, who: Survivor, at_seat: int) -> void:
 	var rect := card_rect(index)
-	var offer: Dictionary = s.shop.offers[index] if index < s.shop.offers.size() else {}
+	var offer: Dictionary = who.shop.offers[index] if index < who.shop.offers.size() else {}
 	if offer.is_empty():
 		draw_panel(rect, Color(0.06,0.08,0.15,0.7), Color("2b3550"), 1.5)
 		text_centered(rect.get_center().x, rect.get_center().y, "SOLD", 22, Color("54617d"))
 		return
-	var affordable: bool = s.materials >= int(offer.price)
-	var hovered := is_focused("buy_%d" % index)
+	var affordable: bool = who.materials >= int(offer.price)
+	var hovered := is_focused("buy_%d" % index, at_seat)
 	var edge: Color = offer.color if affordable else Color("54617d")
 	draw_panel(rect, Color(0.12,0.16,0.28,0.95) if hovered else Color("151d35"), edge, 3.0 if hovered else 2.0)
 	text_at(rect.position + Vector2(20, 38), "WEAPON" if offer.kind == "weapon" else "ITEM", 13, Color("8ea4cb"))
@@ -447,15 +562,15 @@ func draw_offer_card(index: int, s: GameSession) -> void:
 	if offer.kind == "weapon":
 		var def: Dictionary = WeaponCatalog.get_weapon(String(offer.id))
 		var dps: float = WeaponCatalog.damage_at(String(offer.id), int(offer.tier)) * float(def.shots) / WeaponCatalog.cooldown_at(String(offer.id), int(offer.tier))
-		draw_class_chips(rect.position + Vector2(20, 156), def.get("classes", []), s)
+		draw_class_chips(rect.position + Vector2(20, 156), def.get("classes", []), s, who)
 		text_at(rect.position + Vector2(20, 192), "%.0f dps  •  %d range  •  %s" % [dps, int(def.range), String(def.kind).to_upper()], 14, Color("9fb3d9"))
 	text_at(rect.position + Vector2(20, 226), "%d MATERIALS" % int(offer.price), 18, Color("8cffd1") if affordable else Color("ff718b"))
 	text_right(rect.end.x - 18, rect.position.y + 226, "(%d)" % (index + 1), 15, Color("ffe09b"))
 
 # A chip per weapon class, brightened when that class is already contributing
 # a set bonus, so the shop shows what a purchase would build toward.
-func draw_class_chips(at: Vector2, classes: Array, s: GameSession) -> void:
-	var counts := s.class_counts()
+func draw_class_chips(at: Vector2, classes: Array, s: GameSession, who: Survivor) -> void:
+	var counts := s.class_counts(who)
 	var x := at.x
 	for id in classes:
 		var spec: Dictionary = WeaponCatalog.CLASSES[id]
@@ -468,11 +583,11 @@ func draw_class_chips(at: Vector2, classes: Array, s: GameSession) -> void:
 		text_at(Vector2(x + 8, at.y + 1), label, 12, tint if live else Color("7f8db0"))
 		x += width + 6.0
 
-func draw_class_bonuses(s: GameSession) -> void:
-	var counts := s.class_counts()
+func draw_class_bonuses(s: GameSession, who: Survivor) -> void:
+	var counts := s.class_counts(who)
 	var live: Array = counts.keys().filter(func(id) -> bool: return s.class_steps(int(counts[id])) > 0)
 	var left := slot_rect(0).position.x
-	var y := SLOT_TOP - 46.0
+	var y := slot_rect(0).position.y - (34.0 if game.coop else 46.0)
 	text_at(Vector2(left, y), "SET BONUSES", 15, Color("8ea4cb"))
 	if live.is_empty():
 		text_at(Vector2(left + 130, y), "hold two weapons of a class to start one", 14, Color("54617d"))
@@ -496,17 +611,19 @@ func scaled_bonus(spec: Dictionary, steps: int) -> String:
 		parts.append("%s%s%s %s" % ["+" if amount > 0.0 else "", ItemCatalog._trim(amount), suffix, Stats.LABELS.get(String(stat), stat)])
 	return ", ".join(parts)
 
-func draw_weapon_slots(s: GameSession) -> void:
-	text_at(Vector2(slot_rect(0).position.x, SLOT_TOP - 14), "WEAPONS  %d / %d  —  click to sell, or COMBINE two of a kind" % [s.weapons.size(), slot_count()], 15, Color("8ea4cb"))
+func draw_weapon_slots(s: GameSession, who: Survivor, at_seat: int) -> void:
+	var caption := "WEAPONS  %d / %d" % [who.weapons.size(), slot_count()]
+	if not game.coop: caption += "  —  click to sell, or COMBINE two of a kind"
+	text_at(Vector2(slot_rect(0).position.x, slot_rect(0).position.y - 14.0), caption, 15, Color("8ea4cb"))
 	for i in range(slot_count()):
 		var rect := slot_rect(i)
-		if i >= s.weapons.size():
+		if i >= who.weapons.size():
 			draw_panel(rect, Color(0.06,0.08,0.15,0.6), Color("2b3550"), 1.0)
 			text_centered(rect.get_center().x, rect.get_center().y + 6, "EMPTY", 14, Color("46526e"))
 			continue
-		var weapon: Weapon = s.weapons[i]
-		var selling := is_focused("sell_%d" % i)
-		var merging := is_focused("combine_%d" % i)
+		var weapon: Weapon = who.weapons[i]
+		var selling := is_focused("sell_%d" % i, at_seat)
+		var merging := is_focused("combine_%d" % i, at_seat)
 		draw_panel(rect, Color(0.14,0.10,0.14,0.95) if selling else Color("1a2440"), weapon.def().color, 2.0 if selling or merging else 1.5)
 		Icons.weapon(self, weapon.id, rect.position + Vector2(26, 31), 17.0, weapon.def().color)
 		text_at(rect.position + Vector2(50, 26), weapon.display_name(), 15, weapon.def().color)
@@ -516,11 +633,11 @@ func draw_weapon_slots(s: GameSession) -> void:
 		if merging:
 			note = "combine → %s" % WeaponCatalog.tier_label(weapon.tier + 1)
 			tint = Color("ffe09b")
-		elif selling and s.weapons.size() > 1:
+		elif selling and who.weapons.size() > 1:
 			note = "sell +%d" % weapon.sell_value()
 			tint = Color("ff9aa8")
 		text_at(rect.position + Vector2(50, 50), note, 13, tint)
-		if s.can_combine(i): draw_combine_chip(slot_combine_rect(i), merging)
+		if s.can_combine(i, at_seat): draw_combine_chip(slot_combine_rect(i), merging)
 
 # Drawn on any weapon that has a twin in the rack rather than only on hover:
 # a duplicate is an opportunity, and it should be visible before you go looking.
@@ -529,33 +646,36 @@ func draw_combine_chip(rect: Rect2, focused: bool) -> void:
 	draw_panel(rect, Color(accent.r, accent.g, accent.b, 0.22) if focused else Color(0.10, 0.14, 0.25, 0.95), accent, 2.0 if focused else 1.0)
 	text_centered(rect.get_center().x, rect.get_center().y + 5.0, "COMBINE", 12, accent)
 
-func draw_owned_items(s: GameSession) -> void:
-	var top := SLOT_TOP + SLOT_SIZE.y + 40.0
+func draw_owned_items(who: Survivor) -> void:
+	var top := slots_bottom() + (34.0 if game.coop else 40.0)
 	var left := slot_rect(0).position.x
 	text_at(Vector2(left, top), "ITEMS", 15, Color("8ea4cb"))
-	if s.items.is_empty():
+	if who.items.is_empty():
 		text_at(Vector2(left + 78, top), "none yet", 15, Color("54617d"))
 		return
 	var x := left + 84.0
-	for id in s.items:
+	for id in who.items:
 		var def := ItemCatalog.get_item(id)
 		var width := text_width(String(def.name), 14) + 40.0
-		if x + width > SCREEN.x - left: break
+		if x + width > pane.end.x - MARGIN: break
 		draw_panel(Rect2(x, top - 22, width, 30), Color(0.09,0.13,0.24,0.8), def.color, 1.0)
 		Icons.item(self, id, Vector2(x + 16, top - 7), 11.0, def.color)
 		text_at(Vector2(x + 31, top), String(def.name), 14, Color("c8d3ed"))
 		x += width + 8.0
 
-func draw_stat_strip(s: GameSession) -> void:
+func draw_stat_strip(who: Survivor) -> void:
 	var left := slot_rect(0).position.x
-	var y := SCREEN.y - 60.0
+	var y := slots_bottom() + 62.0 if game.coop else SCREEN.y - 60.0
 	var parts: Array[String] = []
 	for stat in ["damage", "attack_speed", "crit_chance", "armor", "dodge", "speed", "lifesteal", "hp_regen", "harvesting", "pickup_radius"]:
-		if is_zero_approx(s.stats.get_stat(stat)): continue
-		parts.append("%s %s" % [Stats.LABELS[stat], s.stats.format(stat)])
-	text_at(Vector2(left, y), "HP %d/%d" % [s.player_hp, s.player_max_hp], 15, Color("f2d8e0"))
+		if is_zero_approx(who.stats.get_stat(stat)): continue
+		parts.append("%s %s" % [Stats.LABELS[stat], who.stats.format(stat)])
+	var hp: float = who.player.hp if is_instance_valid(who.player) else 0.0
+	var top: float = who.player.max_hp if is_instance_valid(who.player) else 1.0
+	text_at(Vector2(left, y), "HP %d/%d" % [hp, top], 15, Color("f2d8e0"))
 	if not parts.is_empty():
-		draw_wrapped(Vector2(left + 140, y), "  •  ".join(parts), 15, Color("9fb3d9"), SCREEN.x - left * 2.0 - 140.0)
+		draw_wrapped(Vector2(left + 140, y), "  •  ".join(parts), 15, Color("9fb3d9"),
+			pane.end.x - MARGIN - left - 140.0)
 
 # Wraps on spaces against a pixel width, since draw_string has no wrapping.
 func draw_wrapped(at: Vector2, text: String, size: int, color: Color, width: float) -> void:
@@ -575,14 +695,30 @@ func draw_wrapped(at: Vector2, text: String, size: int, color: Color, width: flo
 
 func draw_upgrades() -> void:
 	fill_screen(Color(0.02,0.03,0.08,0.82))
-	heading(SCREEN.x * 0.5, 300, "RIFT EVOLUTION", 38, Color("ffe09b"))
-	text_centered(SCREEN.x * 0.5, 340, "Choose one upgrade", 20, Color("c8d3ed"))
-	var choices: Array[Dictionary] = game.session.upgrades
+	var s := game.session
+	for i in range(s.seats()):
+		use_pane(i)
+		draw_upgrade_pane(s.seat(i), i)
+	use_pane(0)
+	if game.coop:
+		draw_rect(Rect2(SCREEN.x * 0.5 - 1.0, 200.0, 2.0, 520.0), Color(0.35, 0.45, 0.70, 0.35))
+
+func draw_upgrade_pane(who: Survivor, at_seat: int) -> void:
+	var centre := pane.get_center().x
+	var title := "P%d  —  RIFT EVOLUTION" % (at_seat + 1) if game.coop else "RIFT EVOLUTION"
+	heading(centre, 220 if game.coop else 300, title, 30 if game.coop else 38, Color("ffe09b"))
+	var choices: Array[Dictionary] = who.upgrades
+	if choices.is_empty():
+		# The overlay stays up while the other player is still choosing, so this
+		# side has to say why it is waiting rather than sit empty.
+		text_centered(centre, 262 if game.coop else 340, "no level this time  —  waiting for the other player", 18, Color("7f8db0"))
+		return
+	text_centered(centre, 262 if game.coop else 340, "Choose one upgrade", 20, Color("c8d3ed"))
 	var rarity_colors := {"COMMON": Color("b7c5d9"), "RARE": Color("82b7ff"), "LEGENDARY": Color("ffcf77")}
 	for i in range(choices.size()):
-		var rect := upgrade_rect(i)
+		var rect := upgrade_rect(i, at_seat)
 		var edge: Color = rarity_colors[choices[i].rarity]
-		var focused := is_focused("upgrade_%d" % i)
+		var focused := is_focused("upgrade_%d" % i, at_seat)
 		# The focused card grows and brightens, the same way a menu button
 		# does, so a controller has something to steer.
 		if focused: rect = rect.grow(6.0)
@@ -598,8 +734,8 @@ func draw_upgrades() -> void:
 		# focused card says anything at all.
 		var prompt := "" if on_pad() else "Press %d" % (i + 1)
 		text_at(rect.position + Vector2(24, 228), "TAKE" if focused else prompt, 15, Color("ffe09b"))
-	var footer := upgrade_rect(0).end.y + 60.0
-	draw_hint_row(SCREEN.x * 0.5, footer, [["nav", "ARROWS", "PICK"], ["confirm", "ENTER", "TAKE"]])
+	var footer := upgrade_rect(choices.size() - 1, at_seat).end.y + 54.0
+	draw_hint_row(pane.get_center().x, footer, [["nav", "ARROWS", "PICK"], ["confirm", "ENTER", "TAKE"]])
 
 func draw_pause() -> void:
 	fill_screen(Color(0.02,0.03,0.08,0.80))
