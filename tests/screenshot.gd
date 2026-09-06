@@ -131,4 +131,13 @@ func capture() -> void:
 	game.state = "level_up"
 	await settle(4)
 	await shoot("06_level_up")
+
+	# The ask before abandoning a run, which quotes the run it is about to end.
+	s.round_number = 9
+	s.level = 8
+	s.kills = 164
+	game.state = "paused"
+	game.state = "confirm_quit"
+	await settle(4)
+	await shoot("11_confirm_quit")
 	quit(0)

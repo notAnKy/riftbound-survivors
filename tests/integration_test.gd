@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 213
+const EXPECTED_CHECKS := 229
 var checks := 0
 
 func _initialize() -> void:
@@ -68,6 +68,8 @@ func bootstrap() -> void:
 	await test_between_wave_healing()
 	await test_level_up_selection()
 	await test_controller()
+	await test_quit_confirmation()
+	await test_slider_sweeping()
 	test_shop_prices_climb()
 	await test_melee_archetype()
 	await test_orbital_archetype()
@@ -483,6 +485,17 @@ func pad_press(game, button: int) -> void:
 	var event := InputEventJoypadButton.new()
 	event.button_index = button
 	event.pressed = true
+	game._unhandled_input(event)
+
+func move_mouse(game, at: Vector2) -> void:
+	var event := InputEventMouseMotion.new()
+	event.position = at
+	game._unhandled_input(event)
+
+func release_mouse(game) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.pressed = false
 	game._unhandled_input(event)
 
 func test_menu_navigation() -> void:
@@ -911,6 +924,82 @@ func test_controller() -> void:
 	check("every prompt has a button glyph (%s)" % ("all present" if missing.is_empty() else str(missing)), missing.is_empty())
 	check("an unplugged pad still names its buttons (%s)" % Gamepad.brand(), Gamepad.brand() != "")
 	game.state = "title"
+	game.free()
+
+# Leaving a run mid-way pays no coins at all, unlike dying, so it is worth one
+# question -- and the question has to default to the harmless answer.
+func test_quit_confirmation() -> void:
+	var game = await fresh_game()
+	game.state = "paused"
+	game.handle_menu_action("menu")
+	check("main menu asks before it leaves (%s)" % game.state, game.state == "confirm_quit")
+	check("and opens on the safe answer (%s)" % game.focused_action(), game.focused_action() == "keep_playing")
+	press(game, KEY_ENTER)
+	check("so a reflexive enter keeps the run (%s)" % game.state, game.state == "paused")
+
+	game.handle_menu_action("menu")
+	press(game, KEY_ESCAPE)
+	check("escape keeps the run too (%s)" % game.state, game.state == "paused")
+
+	game.handle_menu_action("menu")
+	var rows: Array[String] = game.menu_items()
+	var matched := true
+	for i in range(rows.size()):
+		if game.ui.menu_action_at(game.ui.confirm_row_rect(i).get_center()) != rows[i]: matched = false
+	check("both answers hit-test to their own action", matched)
+	click(game, game.ui.confirm_row_rect(rows.find("quit_run")).get_center())
+	check("and leaving actually leaves (%s)" % game.state, game.state == "title")
+
+	# the pause screen's own Q shortcut has to go through the same gate
+	game.state = "paused"
+	press(game, KEY_Q)
+	check("the Q shortcut asks as well (%s)" % game.state, game.state == "confirm_quit")
+	game.free()
+
+# A volume bar that only moved in fixed steps was not a slider.
+func test_slider_sweeping() -> void:
+	var game = load("res://Main.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	game.profile.persist = false
+	game.state = "settings"
+	game.menu_index = game.menu_items().find("sfx")
+	var bar: Rect2 = game.ui.settings_bar_rect(0)
+
+	# pressing a bar grabs it, and the mouse then drags it
+	click(game, Vector2(bar.position.x + bar.size.x * 0.2, bar.get_center().y))
+	check("pressing a bar starts a drag (%s)" % game.dragging, game.dragging == "sfx")
+	var stops: Array[float] = []
+	for ratio in [0.4, 0.6, 0.85]:
+		move_mouse(game, Vector2(bar.position.x + bar.size.x * float(ratio), bar.get_center().y))
+		stops.append(game.audio.volume)
+	check("dragging follows the mouse (%s)" % str(stops),
+		stops[0] < stops[1] and stops[1] < stops[2] and absf(stops[2] - 0.85) < 0.06)
+	release_mouse(game)
+	check("releasing lets go (%s)" % game.dragging, game.dragging == "")
+	move_mouse(game, Vector2(bar.position.x, bar.get_center().y))
+	check("and the bar stops following (%.2f)" % game.audio.volume, game.audio.volume > 0.5)
+
+	# holding a direction sweeps continuously rather than stepping
+	game.audio.set_volume(0.4)
+	Input.action_press("move_right")
+	var swept: bool = game.poll_slider(0.25)
+	Input.action_release("move_right")
+	check("holding a direction sweeps the bar (0.40 -> %.2f)" % game.audio.volume,
+		swept and game.audio.volume > 0.55)
+	game.audio.set_volume(0.4)
+	check("and releasing it stops the sweep", not game.poll_slider(0.25) and is_equal_approx(game.audio.volume, 0.4))
+
+	# a tap is a fine nudge, not a tenth of the range
+	press(game, KEY_RIGHT)
+	var nudge: float = game.audio.volume - 0.4
+	check("one tap is a fine nudge (%.3f)" % nudge, nudge > 0.0 and nudge <= 0.06)
+
+	# the profile is written when the sweep stops, not once per frame of it
+	check("a moved slider is pending a write", game.slider_dirty)
+	await step(2)
+	check("and it is flushed once the sweep ends (%.2f)" % game.profile.level("sfx_volume"),
+		not game.slider_dirty and absf(game.profile.level("sfx_volume") - game.audio.volume) < 0.01)
 	game.free()
 
 func test_shop_prices_climb() -> void:

@@ -116,6 +116,9 @@ func set_setting(name: String, value: bool) -> void:
 func level(name: String) -> float:
 	return clampf(float(data.get(name, DEFAULTS[name])), 0.0, 1.0)
 
-func set_level(name: String, value: float) -> void:
+# `save` is off while a volume bar is being swept: save_profile rewrites the
+# whole file, and a drag would do that sixty times a second. The caller flushes
+# once the sweep stops.
+func set_level(name: String, value: float, save: bool = true) -> void:
 	data[name] = clampf(value, 0.0, 1.0)
-	save_profile()
+	if save: save_profile()

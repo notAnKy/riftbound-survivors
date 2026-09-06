@@ -24,6 +24,7 @@ const ROW_SIZE := Vector2(700, 66)
 const ROW_GAP := 12.0
 const SETTINGS_TOP := 380.0
 const PAUSE_TOP := 450.0
+const CONFIRM_TOP := 520.0
 
 const MENU_BUTTON := Vector2(440, 64)
 const MENU_TOP := 520.0
@@ -63,6 +64,7 @@ func _draw() -> void:
 		if game.state == "level_up": draw_upgrades()
 		elif game.state == "shop": draw_shop()
 		elif game.state == "paused": draw_pause()
+		elif game.state == "confirm_quit": draw_confirm_quit()
 		elif game.state == "settings_pause": draw_settings("PAUSE SETTINGS", "ESC: back to pause")
 		elif game.state == "game_over": draw_game_over()
 		elif game.state == "victory": draw_victory()
@@ -140,6 +142,9 @@ func settings_row_rect(index: int) -> Rect2:
 func pause_row_rect(index: int) -> Rect2:
 	return Rect2(Vector2((SCREEN.x - ROW_SIZE.x) * 0.5, PAUSE_TOP + index * (ROW_SIZE.y + ROW_GAP)), ROW_SIZE)
 
+func confirm_row_rect(index: int) -> Rect2:
+	return Rect2(Vector2((SCREEN.x - ROW_SIZE.x) * 0.5, CONFIRM_TOP + index * (ROW_SIZE.y + ROW_GAP)), ROW_SIZE)
+
 # A row is lit either because the mouse is over it or because the keyboard
 # cursor is on it; the controller keeps those two in step.
 func is_focused(action: String) -> bool:
@@ -169,6 +174,10 @@ func menu_action_at(point: Vector2) -> String:
 		var rows := game.menu_items()
 		for i in range(rows.size()):
 			if pause_row_rect(i).has_point(point): return rows[i]
+	elif game.state == "confirm_quit":
+		var rows := game.menu_items()
+		for i in range(rows.size()):
+			if confirm_row_rect(i).has_point(point): return rows[i]
 	elif game.state == "level_up":
 		for i in range(game.session.upgrades.size()):
 			if upgrade_rect(i).has_point(point): return "upgrade_%d" % i
@@ -575,6 +584,20 @@ func draw_pause() -> void:
 	draw_hint_row(SCREEN.x * 0.5, pause_row_rect(rows.size() - 1).end.y + 62,
 		[["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"], ["back", "ESC", "RESUME"]])
 
+# Leaving mid-run throws the run away: unlike dying, an abandoned run pays no
+# coins at all, so it is worth one question.
+func draw_confirm_quit() -> void:
+	var s := game.session
+	fill_screen(Color(0.02, 0.03, 0.08, 0.88))
+	heading(SCREEN.x * 0.5, 386, "LEAVE THIS RUN?", 40, Color("ffd166"))
+	text_centered(SCREEN.x * 0.5, 432, "Wave %d  •  Level %d  •  %d kills" % [s.round_number, s.level, s.kills], 20, Color("c8d3ed"))
+	text_centered(SCREEN.x * 0.5, 466, "The run ends here and pays no coins.", 18, Color("ff9aa8"))
+	var rows := [["LEAVE RUN", "quit_run", Color("ff718b")], ["KEEP PLAYING", "keep_playing", Color("69f4d4")]]
+	for i in range(rows.size()):
+		draw_menu_button(confirm_row_rect(i), rows[i][0], rows[i][1], rows[i][2])
+	draw_hint_row(SCREEN.x * 0.5, confirm_row_rect(rows.size() - 1).end.y + 62,
+		[["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"], ["back", "ESC", "KEEP PLAYING"]])
+
 func draw_settings(title: String, footer: String) -> void:
 	fill_screen(Color("0b1020"))
 	heading(SCREEN.x * 0.5, 300, title, 40, Color("eaf1ff"))
@@ -590,7 +613,7 @@ func draw_settings(title: String, footer: String) -> void:
 	draw_menu_button(settings_row_rect(rows.size()), "BACK", "back", Color("aabce1"))
 	draw_hint_row(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 62,
 		[["nav", "ARROWS", "PICK / ADJUST"], ["confirm", "ENTER", "TOGGLE"], ["back", "ESC", "BACK"]])
-	if not on_pad(): text_centered(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 110, "or click a bar to set it  •  %s" % footer, 15, Color("8ea4cb"))
+	if not on_pad(): text_centered(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 110, "or drag a bar with the mouse  •  %s" % footer, 15, Color("8ea4cb"))
 
 func draw_slider_row(index: int, row: Dictionary) -> void:
 	var rect := settings_row_rect(index)

@@ -6,15 +6,19 @@ extends Node2D
 
 # Screens whose rows can be clicked.
 const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause",
-	"paused", "level_up"]
+	"paused", "level_up", "confirm_quit"]
 # Settings rows that hold a value rather than a yes/no, so left and right
 # adjust them instead of activating them.
 const SLIDER_ROWS := ["sfx", "music"]
-const SLIDER_STEP := 0.1
+# A single tap is a fine nudge; holding the direction sweeps at SLIDER_RATE of
+# the full range per second. One step per press made a volume bar something you
+# could only move in chunks, which is not what a slider is for.
+const SLIDER_STEP := 0.05
+const SLIDER_RATE := 0.8
 
 # Screens that are a vertical list: up and down walk the rows, left and right
 # adjust whichever row is focused.
-const LIST_STATES := ["title", "settings", "settings_pause", "paused"]
+const LIST_STATES := ["title", "settings", "settings_pause", "paused", "confirm_quit"]
 # Screens laid out across the display instead. Left and right walk the row, and
 # up and down step between the groups the layout is already drawn in.
 const ROW_STATES := ["shop", "level_up"]
@@ -37,6 +41,13 @@ var input_device := "keyboard"
 # scrolls at a steady rate.
 var stick_held := Vector2.ZERO
 var stick_repeat := 0.0
+# The volume row currently being dragged with the mouse, so a bar can be swept
+# rather than only clicked at a point.
+var dragging := ""
+# A slider moved but has not been written to the profile yet, and the level at
+# which the last preview blip played.
+var slider_dirty := false
+var slider_tick := -1.0
 # Which row the keyboard is on. Declared before `state` because the setter
 # below resets it, and member initialisers run in declaration order.
 var menu_index := 0
@@ -52,6 +63,9 @@ var state := "title":
 		# have always meant "leave the shop", and starting the cursor on an
 		# offer would turn that muscle memory into an accidental purchase.
 		if value == "shop": menu_index = maxi(0, menu_items().find("go"))
+		# A confirmation opens on the harmless answer, so a reflexive Enter or
+		# Cross keeps the run rather than throwing it away.
+		if value == "confirm_quit": menu_index = maxi(0, menu_items().find("keep_playing"))
 
 func _ready() -> void:
 	# The actors drive themselves from _physics_process now, so pausing the
@@ -84,7 +98,7 @@ func _ready() -> void:
 # Combat and the menus get their own track; the shop counts as a menu, which
 # is what makes leaving it feel like going back in.
 func music_for_state() -> String:
-	return "combat" if state in ["playing", "level_up", "paused"] else "menu"
+	return "combat" if state in ["playing", "level_up", "paused", "confirm_quit"] else "menu"
 
 func _process(delta: float) -> void:
 	audio.play_music(music_for_state())
@@ -99,6 +113,13 @@ func _process(delta: float) -> void:
 	if state in MOUSE_STATES:
 		sync_hover(get_viewport().get_mouse_position())
 	poll_stick(delta)
+	# Both ways of sweeping a volume bar, and one disk write when the sweep
+	# stops rather than sixty a second while it is happening.
+	var swept := drag_slider()
+	if poll_slider(delta): swept = true
+	if slider_dirty and not swept:
+		slider_dirty = false
+		profile.save_profile()
 	ui.queue_redraw()
 
 # --- menu navigation ---------------------------------------------------------
@@ -120,6 +141,7 @@ func menu_items() -> Array[String]:
 		"title": items.assign(["play", "armory", "settings", "quit"])
 		"settings", "settings_pause": items.assign(["sfx", "music", "rift", "fullscreen", "back"])
 		"paused": items.assign(["resume", "settings", "menu"])
+		"confirm_quit": items.assign(["quit_run", "keep_playing"])
 		"level_up":
 			if session == null: return items
 			for i in range(session.upgrades.size()): items.append("upgrade_%d" % i)
@@ -261,7 +283,10 @@ func handle_menu_action(action: String) -> void:
 		"rift": toggle_rift_effects()
 		"fullscreen": toggle_fullscreen()
 		"resume": state = "playing"
-		"menu": state = "title"
+		# Abandoning a run pays no coins, unlike dying, so it asks first.
+		"menu": state = "confirm_quit"
+		"quit_run": state = "title"
+		"keep_playing": state = "paused"
 		"back": leave_back()
 		"reroll": session.reroll_shop()
 		"go": leave_shop()
@@ -301,16 +326,54 @@ func slider_value(action: String) -> float:
 
 func set_slider(action: String, value: float) -> void:
 	var level := clampf(value, 0.0, 1.0)
+	slider_dirty = true
 	if action == "sfx":
 		audio.set_volume(level)
-		audio.play("ui_move", -4.0)
-		profile.set_level("sfx_volume", level)
+		# The blip is how the new volume is actually heard, but at sixty frames
+		# a second a sweep would machine-gun it, so it only fires on a real
+		# change in level.
+		if absf(level - slider_tick) >= 0.05:
+			slider_tick = level
+			audio.play("ui_move", -4.0)
+		profile.set_level("sfx_volume", level, false)
 	else:
 		audio.set_music_volume(level)
-		profile.set_level("music_volume", level)
+		profile.set_level("music_volume", level, false)
 
 func nudge_slider(action: String, step: float) -> void:
 	set_slider(action, slider_value(action) + step)
+
+# The focused volume row, or "" when the current screen has none focused.
+func focused_slider() -> String:
+	if not (state in LIST_STATES): return ""
+	var row := focused_action()
+	return row if row in SLIDER_ROWS else ""
+
+# The move itself rides on the motion event, so the position comes from the
+# event rather than the viewport. This is only the safety net: a button released
+# outside the window sends no release event, and the drag has to end anyway.
+func drag_slider() -> bool:
+	if dragging == "": return false
+	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		dragging = ""
+		return false
+	return true
+
+func drag_to(at: Vector2) -> void:
+	if dragging == "": return
+	set_slider(dragging, ui.slider_ratio_at(menu_items().find(dragging), at))
+
+# Keyboard and pad sweep: holding a direction slides the bar continuously rather
+# than stepping it once per press. move_left/move_right already carry the arrow
+# keys, A and D, the stick and the d-pad, and get_axis hands back the stick's
+# analog value -- so a gentle push slides gently.
+func poll_slider(delta: float) -> bool:
+	var row := focused_slider()
+	if row == "": return false
+	var axis := Input.get_axis("move_left", "move_right")
+	if absf(axis) < 0.15: return false
+	nudge_slider(row, axis * SLIDER_RATE * delta)
+	return true
 
 func toggle_rift_effects() -> void:
 	rift_effects_enabled = not rift_effects_enabled
@@ -457,6 +520,9 @@ func handle_verb(verb: String) -> bool:
 			"paused":
 				state = "playing"
 				return true
+			"confirm_quit":
+				state = "paused"
+				return true
 			"game_over", "victory":
 				state = "title"
 				return true
@@ -475,10 +541,20 @@ func handle_verb(verb: String) -> bool:
 	return false
 
 func _unhandled_input(event: InputEvent) -> void:
+	# A drag in progress owns the mouse until the button comes up.
+	if event is InputEventMouseMotion and dragging != "":
+		drag_to((event as InputEventMouseMotion).position)
+		return
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT and not (event as InputEventMouseButton).pressed:
+		dragging = ""
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and state in MOUSE_STATES:
 		var clicked := ui.menu_action_at(event.position)
-		# A click on a slider sets it where you clicked, rather than toggling.
+		# A press on a volume row sets it where you clicked and then follows the
+		# mouse until the button comes up, so the bar can be swept.
 		if clicked in SLIDER_ROWS:
+			dragging = clicked
+			menu_index = maxi(0, menu_items().find(clicked))
 			set_slider(clicked, ui.slider_ratio_at(menu_items().find(clicked), event.position))
 			return
 		handle_menu_action(clicked)
@@ -518,7 +594,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif key.keycode == KEY_F: toggle_fullscreen()
 	elif state == "paused":
 		if key.keycode == KEY_S: open_settings()
-		elif key.keycode == KEY_Q: state = "title"
+		elif key.keycode == KEY_Q: state = "confirm_quit"
 	elif state == "shop":
 		if key.keycode >= KEY_1 and key.keycode <= KEY_4: session.buy(key.keycode - KEY_1)
 		elif key.keycode == KEY_R: session.reroll_shop()
