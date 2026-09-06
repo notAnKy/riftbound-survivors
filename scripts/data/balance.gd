@@ -10,12 +10,12 @@ const ENEMY_HP_PER_ROUND := 5.5
 
 # The curve compounds, so small changes here matter far more by round 10 than
 # anything else in this file. 1.30 made round 10 enemies roughly 1700hp.
-const ROUND_INTENSITY := 1.17
+const ROUND_INTENSITY := 1.185
 
 const ENEMY_SPEED_MIN := 54.0
 const ENEMY_SPEED_MAX := 82.0
 const ENEMY_SPEED_PER_ROUND := 4.0
-const ENEMY_DAMAGE_PER_ROUND := 0.7
+const ENEMY_DAMAGE_PER_ROUND := 1.5
 
 const BOSS_HP_BASE := 300.0
 const BOSS_HP_PER_ROUND := 0.18
@@ -33,10 +33,19 @@ const SPAWN_INTERVAL_MIN := 0.16
 
 # Healing. A drop on some kills, plus a steady trickle every so many kills so
 # a long clean wave repays the player even when no bandage rolls.
-const HEALTH_DROP_CHANCE := 0.07
-const HEALTH_DROP_AMOUNT := 12
-const HEAL_EVERY_KILLS := 20
-const HEAL_ON_KILLS := 6.0
+# Healing used to scale with the kill count, and the kill count explodes: by
+# round 7 the passive drip out-paced a whole crowd hitting you, so standing
+# still was the strongest play. All three sources are now scarce, and lifesteal
+# is capped per hit so a piercing crit cannot refill the bar.
+const HEALTH_DROP_CHANCE := 0.02
+const HEALTH_DROP_AMOUNT := 8
+const HEAL_EVERY_KILLS := 50
+const HEAL_ON_KILLS := 4.0
+const LIFESTEAL_MAX_PER_HIT := 0.02
+
+# Shop prices climb per wave. Material income grows far faster than this, so a
+# shallow curve stops the shop mattering by the midgame.
+const SHOP_INFLATION_PER_WAVE := 0.18
 
 # Rift Nova: a real area attack rather than a quiet damage tick.
 const NOVA_RADIUS := 300.0

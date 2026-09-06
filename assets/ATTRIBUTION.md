@@ -58,3 +58,14 @@ the glyph can be tinted in-game. No other modification is made.
 - **Orbitron** (headings) and **Rajdhani** (UI text), both from Google Fonts.
 - License: **SIL Open Font License 1.1** — full text kept beside the fonts in
   `assets/fonts/OFL-Orbitron.txt` and `assets/fonts/OFL-Rajdhani.txt`.
+
+## Music
+
+- `combat.mp3` — freesound.org user **theojt**, "retro-electro" (569777)
+- `menu.mp3` — freesound.org user **benderhover**, "retro game beat" (689169)
+- Obtained via the SoundSafari/CC0-1.0-Music aggregation on GitHub, which is
+  published under **CC0 1.0**. Both tracks carry their original freesound IDs,
+  so provenance can be checked at the source.
+- Note: that repository is a third-party aggregation. Its CC0 claim is only as
+  good as the aggregator's diligence — verify each track at freesound.org
+  before any commercial release.

@@ -113,6 +113,16 @@ func danger_rect(index: int) -> Rect2:
 func armory_back_rect() -> Rect2:
 	return Rect2(60, 60, 170, 52)
 
+# The draggable part of a slider row, and the click position expressed as a
+# 0..1 ratio along it.
+func settings_bar_rect(index: int) -> Rect2:
+	var row := settings_row_rect(index)
+	return Rect2(row.position.x + 300.0, row.position.y + 24.0, row.size.x - 400.0, 18.0)
+
+func slider_ratio_at(index: int, point: Vector2) -> float:
+	var bar := settings_bar_rect(index)
+	return clampf((point.x - bar.position.x) / maxf(bar.size.x, 1.0), 0.0, 1.0)
+
 func settings_row_rect(index: int) -> Rect2:
 	return Rect2(Vector2((SCREEN.x - ROW_SIZE.x) * 0.5, SETTINGS_TOP + index * (ROW_SIZE.y + ROW_GAP)), ROW_SIZE)
 
@@ -139,11 +149,13 @@ func menu_action_at(point: Vector2) -> String:
 		for i in range(Balance.DANGER_LEVELS):
 			if danger_rect(i).has_point(point): return "danger_%d" % i
 	elif game.state == "settings" or game.state == "settings_pause":
-		var rows := ["sound", "rift", "fullscreen", "back"]
+		# Taken straight from menu_items so the clickable rows and the keyboard
+		# rows can never drift apart -- they did, the moment a row was added.
+		var rows := game.menu_items()
 		for i in range(rows.size()):
 			if settings_row_rect(i).has_point(point): return rows[i]
 	elif game.state == "paused":
-		var rows := ["resume", "settings", "menu"]
+		var rows := game.menu_items()
 		for i in range(rows.size()):
 			if pause_row_rect(i).has_point(point): return rows[i]
 	elif game.state == "shop":
@@ -383,14 +395,31 @@ func draw_settings(title: String, footer: String) -> void:
 	fill_screen(Color("0b1020"))
 	heading(SCREEN.x * 0.5, 300, title, 40, Color("eaf1ff"))
 	var rows := [
-		{"action": "sound", "key": "S", "label": "Sound Effects", "on": game.sound_enabled},
+		{"action": "sfx", "key": "", "label": "Sound Volume", "level": game.audio.volume},
+		{"action": "music", "key": "", "label": "Music Volume", "level": game.audio.music_volume},
 		{"action": "rift", "key": "V", "label": "Rift Effects", "on": game.rift_effects_enabled},
 		{"action": "fullscreen", "key": "F11", "label": "Fullscreen", "on": game.is_fullscreen()},
 	]
 	for i in range(rows.size()):
-		draw_toggle_row(settings_row_rect(i), rows[i])
+		if rows[i].has("level"): draw_slider_row(i, rows[i])
+		else: draw_toggle_row(settings_row_rect(i), rows[i])
 	draw_menu_button(settings_row_rect(rows.size()), "BACK", "back", Color("aabce1"))
-	text_centered(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 56, "Arrows + Enter, or click  •  %s" % footer, 16, Color("8ea4cb"))
+	text_centered(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 56, "Up/Down to pick  •  Left/Right to adjust  •  click a bar to set  •  %s" % footer, 16, Color("8ea4cb"))
+
+func draw_slider_row(index: int, row: Dictionary) -> void:
+	var rect := settings_row_rect(index)
+	var focused := is_focused(String(row.action))
+	var level: float = row.level
+	draw_panel(rect, Color(0.10,0.15,0.27,0.95) if focused else Color("182441"), Color("d6e2fa") if focused else Color("3d527d"), 3.0 if focused else 1.5)
+	if focused: draw_rect(Rect2(rect.position, Vector2(6, rect.size.y)), Color("ffe09b"))
+	text_at(rect.position + Vector2(28, 44), String(row.label), 24, Color("e9f0ff"))
+	var bar := settings_bar_rect(index)
+	draw_rect(bar, Color("101a30"), true)
+	draw_rect(Rect2(bar.position, Vector2(bar.size.x * level, bar.size.y)), Color("69f4d4") if level > 0.0 else Color("54617d"), true)
+	draw_rect(bar, Color("3d527d"), false, 1.5)
+	# The handle makes it read as draggable rather than as a progress bar.
+	draw_rect(Rect2(bar.position.x + bar.size.x * level - 4.0, bar.position.y - 5.0, 8.0, bar.size.y + 10.0), Color("e8efff"), true)
+	text_right(rect.end.x - 28, rect.position.y + 44, "OFF" if level <= 0.0 else "%d%%" % int(round(level * 100.0)), 22, Color("ff718b") if level <= 0.0 else Color("69f4d4"))
 
 func draw_toggle_row(rect: Rect2, row: Dictionary) -> void:
 	var focused := is_focused(String(row.action))

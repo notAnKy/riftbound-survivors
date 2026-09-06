@@ -46,7 +46,7 @@ func capture() -> void:
 	await shoot("01_title")
 
 	game.state = "settings"
-	game.menu_index = 2
+	game.menu_index = 0
 	await settle(3)
 	await shoot("08_settings")
 

@@ -124,6 +124,20 @@ something drawn inside the session, so the visual can outlive the single frame
 the damage lands on -- which is the whole difference between reading as an
 attack and reading as a silent stat tick.
 
+### Economy and healing
+
+**Healing must not scale with the kill count.** It did, and the kill count
+explodes: by round 7 the passive drip out-healed a whole crowd, so standing
+still was the strongest play. All three sources are now scarce (a 2% bandage
+roll, a trickle every 50 kills), and **lifesteal is capped per hit** at a
+fraction of max HP — a piercing weapon reports one hit per enemy and a crit
+multiplies the amount, so an uncapped percentage refilled the bar from a
+single shot into a crowd.
+
+**Shop prices climb per wave** (`SHOP_INFLATION_PER_WAVE`). Material income
+grows much faster than a shallow curve, so without this the shop stops
+mattering by the midgame.
+
 ### Stats
 
 `Stats` is a flat dictionary of named modifiers plus the helpers that read it.
@@ -181,6 +195,13 @@ before it, which in a busy wave is one voice fighting itself.
 picks one at random and detunes it slightly. That is what stops a fast weapon
 sounding like a stuck loop. Weapons name their bank (`light`/`medium`/`heavy`)
 in the catalog, and fast weapons are mixed quieter or an SMG drowns the rest.
+
+Music is one looping `AudioStreamPlayer` alongside the voice pool, with its
+own volume. `main.gd` calls `play_music(music_for_state())` every frame and
+`play_music` is a no-op when the track has not changed, so the state machine
+does not have to remember what is playing. Combat gets one track, every menu
+and the shop share another, which is what makes leaving the shop feel like
+going back in.
 
 ## Type
 

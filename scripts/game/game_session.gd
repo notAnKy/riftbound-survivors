@@ -371,7 +371,12 @@ func add_shot(direction: Vector2, speed: float, life: float, damage: float, colo
 
 func on_damage_dealt(amount: float) -> void:
 	var leech := stats.get_stat("lifesteal")
-	if leech > 0.0 and is_instance_valid(player): player.heal(amount * leech / 100.0)
+	if leech <= 0.0 or not is_instance_valid(player): return
+	# Capped per hit: a piercing weapon reports a hit per enemy, and a crit
+	# multiplies the amount, so an uncapped percentage refilled the bar from a
+	# single shot into a crowd.
+	var ceiling := player.max_hp * Balance.LIFESTEAL_MAX_PER_HIT
+	player.heal(minf(amount * leech / 100.0, ceiling))
 
 func on_enemy_shot(from: Vector2, direction: Vector2, damage: float, shot_speed: float) -> void:
 	var shot: Projectile = SHOT_SCENE.instantiate()

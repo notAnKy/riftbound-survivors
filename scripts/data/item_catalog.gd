@@ -25,7 +25,7 @@ static func all() -> Array[Dictionary]:
 		{"id":"ghost_step", "name":"GHOST STEP", "price":22, "min_round":3,
 			"stats":{"dodge":6.0}, "color":Color("bf8cff")},
 		{"id":"leech_rune", "name":"LEECH RUNE", "price":24, "min_round":3,
-			"stats":{"lifesteal":4.0}, "color":Color("ff718b")},
+			"stats":{"lifesteal":2.5}, "color":Color("ff718b")},
 		{"id":"salvage_rig", "name":"SALVAGE RIG", "price":19, "min_round":3,
 			"stats":{"harvesting":4.0}, "color":Color("ffd166")},
 		{"id":"repair_field", "name":"REPAIR FIELD", "price":21, "min_round":4,

@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 128
+const EXPECTED_CHECKS := 143
 var checks := 0
 
 func _initialize() -> void:
@@ -63,6 +63,9 @@ func bootstrap() -> void:
 	test_profile_persistence()
 	test_every_icon_exists()
 	await test_audio_banks()
+	await test_music()
+	await test_healing_is_scarce()
+	test_shop_prices_climb()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -486,13 +489,16 @@ func test_menu_navigation() -> void:
 
 	# Enter activates whatever is focused, on every list screen.
 	game.state = "settings"
-	var sound_before: bool = game.sound_enabled
+	var volume_before: float = game.audio.volume
 	press(game, KEY_ENTER)
-	check("enter toggles the focused row", game.sound_enabled != sound_before)
-	press(game, KEY_DOWN)
+	check("enter mutes the focused volume row (%.2f -> %.2f)" % [volume_before, game.audio.volume], not is_equal_approx(game.audio.volume, volume_before))
+	press(game, KEY_LEFT)
+	press(game, KEY_RIGHT)
+	check("left and right adjust a slider (%.2f)" % game.audio.volume, game.audio.volume > 0.0)
+	game.menu_index = game.menu_items().find("rift")
 	var rift_before: bool = game.rift_effects_enabled
 	press(game, KEY_SPACE)
-	check("space works the same as enter", game.rift_effects_enabled != rift_before)
+	check("space toggles a toggle row", game.rift_effects_enabled != rift_before)
 	game.menu_index = game.menu_items().size() - 1
 	press(game, KEY_ENTER)
 	check("the back row leaves the screen", game.state == "title")
@@ -510,17 +516,23 @@ func test_menu_navigation() -> void:
 
 	# A click has to do the same thing the keyboard would.
 	game.state = "settings"
+	var rift_row: int = game.menu_items().find("rift")
 	var before: bool = game.rift_effects_enabled
-	click(game, game.ui.settings_row_rect(1).get_center())
-	check("clicking a row toggles it", game.rift_effects_enabled != before)
+	click(game, game.ui.settings_row_rect(rift_row).get_center())
+	check("clicking a toggle row flips it", game.rift_effects_enabled != before)
+	# clicking a slider sets it where you clicked, rather than toggling
+	var bar: Rect2 = game.ui.settings_bar_rect(0)
+	click(game, Vector2(bar.position.x + bar.size.x * 0.25, bar.get_center().y))
+	check("clicking a bar sets it to that point (%.2f)" % game.audio.volume, absf(game.audio.volume - 0.25) < 0.06)
 
 	# The mouse and the keyboard cursor must not disagree about the target.
 	game.state = "settings"
 	game.menu_index = 0
-	game.sync_hover(game.ui.settings_row_rect(2).get_center())
-	check("hovering moves the keyboard cursor onto that row (%d)" % game.menu_index, game.menu_index == 2 and game.menu_hover == "fullscreen")
+	var full_row: int = game.menu_items().find("fullscreen")
+	game.sync_hover(game.ui.settings_row_rect(full_row).get_center())
+	check("hovering moves the keyboard cursor onto that row (%d)" % game.menu_index, game.menu_index == full_row and game.menu_hover == "fullscreen")
 	game.sync_hover(Vector2(5, 5))
-	check("moving off the rows leaves the cursor where it was (%d)" % game.menu_index, game.menu_index == 2 and game.menu_hover == "")
+	check("moving off the rows leaves the cursor where it was (%d)" % game.menu_index, game.menu_index == full_row and game.menu_hover == "")
 
 	game.state = "paused"
 	press(game, KEY_ENTER)
@@ -650,14 +662,17 @@ func test_danger_levels() -> void:
 func test_profile_persistence() -> void:
 	var profile := ProfileManager.new()
 	profile.persist = false
-	check("settings default on", profile.setting("sound") and profile.setting("rift_effects"))
-	profile.set_setting("sound", false)
-	check("a setting sticks in memory", not profile.setting("sound"))
-	var reloaded := profile.sanitized({"coins": 5, "sound": false, "fullscreen": true, "max_danger": 3})
-	check("settings survive a round trip", reloaded.sound == false and reloaded.fullscreen == true)
+	check("settings default on", profile.setting("rift_effects") and profile.level("sfx_volume") > 0.0)
+	profile.set_setting("rift_effects", false)
+	check("a setting sticks in memory", not profile.setting("rift_effects"))
+	profile.set_level("music_volume", 0.3)
+	check("a volume sticks in memory (%.2f)" % profile.level("music_volume"), is_equal_approx(profile.level("music_volume"), 0.3))
+	var reloaded := profile.sanitized({"coins": 5, "sfx_volume": 0.25, "fullscreen": true, "max_danger": 3})
+	check("settings survive a round trip", is_equal_approx(reloaded.sfx_volume, 0.25) and reloaded.fullscreen == true)
 	check("max_danger survives (%s)" % reloaded.max_danger, reloaded.max_danger == 3)
-	var junk := profile.sanitized({"sound": "yes", "max_danger": 99})
-	check("a junk setting falls back to the default", junk.sound == true)
+	var junk := profile.sanitized({"rift_effects": "yes", "sfx_volume": 40.0, "max_danger": 99})
+	check("a junk setting falls back to the default", junk.rift_effects == true)
+	check("an out-of-range volume is clamped (%.2f)" % junk.sfx_volume, junk.sfx_volume <= 1.0)
 	check("and max_danger is clamped (%s)" % junk.max_danger, junk.max_danger == Balance.DANGER_LEVELS - 1)
 	# winning opens the next rung, and only ever upward
 	var ladder := ProfileManager.new()
@@ -706,3 +721,56 @@ func test_audio_banks() -> void:
 	check("sound off means nothing plays (%d voices busy)" % silent, silent == 0)
 	audio.enabled = true
 	game.free()
+
+func test_music() -> void:
+	var game = await fresh_game()
+	var audio = game.audio
+	audio.set_music_volume(0.5)
+	audio.play_music("combat")
+	check("a track loads and starts", audio.music.stream != null and audio.current_track == "combat")
+	check("it is set to loop", not (audio.music.stream is AudioStreamMP3) or audio.music.stream.loop)
+	audio.play_music("menu")
+	check("switching tracks swaps the stream", audio.current_track == "menu")
+	audio.set_music_volume(0.0)
+	check("zero music volume stops playback", not audio.music.playing)
+	audio.set_music_volume(0.5)
+	check("raising it again resumes", audio.music.playing)
+	game.state = "playing"
+	var combat: String = game.music_for_state()
+	game.state = "title"
+	check("combat and the menus use different tracks (%s / %s)" % [combat, game.music_for_state()], combat != game.music_for_state())
+	game.free()
+
+# The complaint that started this: healing scaled with the kill count, and the
+# kill count explodes, so by round 7 standing still was the strongest play.
+func test_healing_is_scarce() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	s.player.hp = 10.0
+	var before: float = s.player.hp
+	for i in range(100):
+		s.on_enemy_died(s.player.position + Vector2(700, 0), 1, false)
+	var trickle: float = s.player.hp - before
+	check("a hundred kills heal only a trickle (%.0f hp)" % trickle, trickle > 0.0 and trickle < 20.0)
+	s.stats.add("lifesteal", 50.0)
+	s.player.hp = 10.0
+	s.on_damage_dealt(100000.0)
+	var leeched: float = s.player.hp - 10.0
+	var ceiling: float = s.player.max_hp * Balance.LIFESTEAL_MAX_PER_HIT
+	check("one huge hit cannot refill the bar (%.1f of %.1f allowed)" % [leeched, ceiling], leeched <= ceiling + 0.01)
+	check("bandages are rare (%.0f%% of kills)" % (Balance.HEALTH_DROP_CHANCE * 100.0), Balance.HEALTH_DROP_CHANCE <= 0.03)
+	game.free()
+
+func test_shop_prices_climb() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var shop := Shop.new()
+	var early := 0
+	var late := 0
+	for i in range(40):
+		shop.roll(rng, 1, 0.0)
+		for offer in shop.offers: early += int(offer.price)
+		shop.roll(rng, 15, 0.0)
+		for offer in shop.offers: late += int(offer.price)
+	check("a late shop costs far more than an early one (%d vs %d)" % [late, early], float(late) > float(early) * 2.0)
+	check("prices still start low (%d for four offers at wave 1)" % (early / 40), early / 40 < 120)

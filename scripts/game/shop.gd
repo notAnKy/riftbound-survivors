@@ -48,7 +48,7 @@ func take(index: int) -> Dictionary:
 func make_offer(rng: RandomNumberGenerator, round_number: int, luck: float) -> Dictionary:
 	# Prices drift up with the round so the shop keeps mattering once a run
 	# is producing far more materials per wave than it did at the start.
-	var inflation := 1.0 + float(round_number) * 0.08
+	var inflation := 1.0 + float(round_number) * Balance.SHOP_INFLATION_PER_WAVE
 	if rng.randf() < WEAPON_CHANCE:
 		var defs := WeaponCatalog.all()
 		var def: Dictionary = defs[rng.randi_range(0, defs.size() - 1)]

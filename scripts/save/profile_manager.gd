@@ -8,9 +8,10 @@ const DEFAULTS := {
 	"unlocked_guns": [0],
 	"unlocked_characters": [0],
 	"max_danger": 0,
-	"sound": true,
 	"rift_effects": true,
 	"fullscreen": false,
+	"sfx_volume": 0.7,
+	"music_volume": 0.45,
 }
 
 var data: Dictionary = DEFAULTS.duplicate(true)
@@ -39,8 +40,11 @@ func sanitized(parsed: Dictionary) -> Dictionary:
 		clean.max_danger = clampi(int(danger_value), 0, Balance.DANGER_LEVELS - 1)
 	clean.unlocked_guns = sanitized_unlocks(parsed.get("unlocked_guns"), GunCatalog.all().size())
 	clean.unlocked_characters = sanitized_unlocks(parsed.get("unlocked_characters"), CharacterCatalog.all().size())
-	for flag in ["sound", "rift_effects", "fullscreen"]:
+	for flag in ["rift_effects", "fullscreen"]:
 		if parsed.get(flag) is bool: clean[flag] = parsed[flag]
+	for level in ["sfx_volume", "music_volume"]:
+		var value = parsed.get(level)
+		if value is float or value is int: clean[level] = clampf(float(value), 0.0, 1.0)
 	return clean
 
 func sanitized_unlocks(raw, count: int) -> Array:
@@ -107,4 +111,11 @@ func setting(name: String) -> bool:
 
 func set_setting(name: String, value: bool) -> void:
 	data[name] = value
+	save_profile()
+
+func level(name: String) -> float:
+	return clampf(float(data.get(name, DEFAULTS[name])), 0.0, 1.0)
+
+func set_level(name: String, value: float) -> void:
+	data[name] = clampf(value, 0.0, 1.0)
 	save_profile()

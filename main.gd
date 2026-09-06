@@ -6,6 +6,11 @@ extends Node2D
 
 # Screens whose rows can be clicked.
 const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause", "paused"]
+# Settings rows that hold a value rather than a yes/no, so left and right
+# adjust them instead of activating them.
+const SLIDER_ROWS := ["sfx", "music"]
+const SLIDER_STEP := 0.1
+
 # Screens that are a vertical list, driven with the arrow keys and Enter.
 const MENU_STATES := ["title", "settings", "settings_pause", "paused"]
 
@@ -17,7 +22,6 @@ var selected_gun := 0
 var selected_character := 0
 var danger := 0
 var last_reward := 0
-var sound_enabled := true
 var rift_effects_enabled := true
 var profile := ProfileManager.new()
 var menu_hover := ""
@@ -47,9 +51,9 @@ func _ready() -> void:
 	session.process_mode = Node.PROCESS_MODE_PAUSABLE
 	profile.load_profile()
 	# Settings live in the profile now, so they survive a quit.
-	sound_enabled = profile.setting("sound")
 	rift_effects_enabled = profile.setting("rift_effects")
-	audio.enabled = sound_enabled
+	audio.set_volume(profile.level("sfx_volume"))
+	audio.set_music_volume(profile.level("music_volume"))
 	danger = profile.max_danger()
 	if profile.setting("fullscreen"): toggle_fullscreen()
 	session.level_up_requested.connect(func() -> void: state = "level_up")
@@ -58,7 +62,13 @@ func _ready() -> void:
 	session.run_won.connect(on_run_won)
 	session.rift_effects_enabled = rift_effects_enabled
 
+# Combat and the menus get their own track; the shop counts as a menu, which
+# is what makes leaving it feel like going back in.
+func music_for_state() -> String:
+	return "combat" if state in ["playing", "level_up", "paused"] else "menu"
+
 func _process(delta: float) -> void:
+	audio.play_music(music_for_state())
 	# Restored here rather than in the session, because this node keeps
 	# running while the tree is paused: pausing mid hit-stop would otherwise
 	# leave the whole game at 6% speed with nothing left to undo it.
@@ -83,7 +93,7 @@ func sync_hover(point: Vector2) -> void:
 func menu_items() -> Array[String]:
 	match state:
 		"title": return ["play", "armory", "settings", "quit"]
-		"settings", "settings_pause": return ["sound", "rift", "fullscreen", "back"]
+		"settings", "settings_pause": return ["sfx", "music", "rift", "fullscreen", "back"]
 		"paused": return ["resume", "settings", "menu"]
 	return []
 
@@ -92,6 +102,10 @@ func move_menu(step: int) -> void:
 	if items.is_empty(): return
 	audio.play("ui_move", -5.0)
 	menu_index = wrapi(menu_index + step, 0, items.size())
+
+func focused_action() -> String:
+	var items := menu_items()
+	return items[menu_index] if menu_index >= 0 and menu_index < items.size() else ""
 
 func activate_menu() -> void:
 	audio.play("ui_click", -2.0)
@@ -150,7 +164,7 @@ func handle_menu_action(action: String) -> void:
 		"play": start_run()
 		"armory": state = "armory"
 		"settings": open_settings()
-		"sound": toggle_sound()
+		"sfx", "music": set_slider(action, 0.0 if slider_value(action) > 0.0 else 0.7)
 		"rift": toggle_rift_effects()
 		"fullscreen": toggle_fullscreen()
 		"resume": state = "playing"
@@ -173,10 +187,21 @@ func toggle_fullscreen() -> void:
 	get_window().mode = Window.MODE_WINDOWED if is_fullscreen() else Window.MODE_FULLSCREEN
 	profile.set_setting("fullscreen", is_fullscreen())
 
-func toggle_sound() -> void:
-	sound_enabled = not sound_enabled
-	audio.enabled = sound_enabled
-	profile.set_setting("sound", sound_enabled)
+func slider_value(action: String) -> float:
+	return audio.volume if action == "sfx" else audio.music_volume
+
+func set_slider(action: String, value: float) -> void:
+	var level := clampf(value, 0.0, 1.0)
+	if action == "sfx":
+		audio.set_volume(level)
+		audio.play("ui_move", -4.0)
+		profile.set_level("sfx_volume", level)
+	else:
+		audio.set_music_volume(level)
+		profile.set_level("music_volume", level)
+
+func nudge_slider(action: String, step: float) -> void:
+	set_slider(action, slider_value(action) + step)
 
 func toggle_rift_effects() -> void:
 	rift_effects_enabled = not rift_effects_enabled
@@ -185,7 +210,12 @@ func toggle_rift_effects() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and state in MOUSE_STATES:
-		handle_menu_action(ui.menu_action_at(event.position))
+		var clicked := ui.menu_action_at(event.position)
+		# A click on a slider sets it where you clicked, rather than toggling.
+		if clicked in SLIDER_ROWS:
+			set_slider(clicked, ui.slider_ratio_at(menu_items().find(clicked), event.position))
+			return
+		handle_menu_action(clicked)
 		return
 	if not (event is InputEventKey and event.pressed and not event.echo): return
 	# Fullscreen is global: it has to work from every screen, so it is handled
@@ -204,7 +234,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_DOWN:
 				move_menu(1)
 				return
-			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_LEFT, KEY_RIGHT:
+			KEY_LEFT, KEY_RIGHT:
+				var step: float = SLIDER_STEP if event.keycode == KEY_RIGHT else -SLIDER_STEP
+				var row := focused_action()
+				if row in SLIDER_ROWS: nudge_slider(row, step)
+				else: activate_menu()
+				return
+			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
 				activate_menu()
 				return
 	if state == "title":
@@ -219,8 +255,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_RIGHT: set_danger(danger + 1)
 		elif event.keycode == KEY_ESCAPE or event.keycode == KEY_B: state = "title"
 	elif state == "settings" or state == "settings_pause":
-		if event.keycode == KEY_S: toggle_sound()
-		elif event.keycode == KEY_V: toggle_rift_effects()
+		if event.keycode == KEY_V: toggle_rift_effects()
 		elif event.keycode == KEY_F: toggle_fullscreen()
 		elif event.keycode == KEY_ESCAPE: leave_settings()
 	elif state == "paused":

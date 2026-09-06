@@ -6,6 +6,7 @@ extends Node
 # pickup, so a busy wave was one voice fighting itself.
 
 const SOUND_DIR := "res://assets/audio/"
+const MUSIC_DIR := "res://assets/music/"
 # Enough that a shotgun volley, a kill and a pickup can all ring at once
 # without a burst of SMG fire starving everything else.
 const VOICES := 20
@@ -23,6 +24,9 @@ const BANKS := {
 
 var enabled := true
 var volume := 0.7
+var music_volume := 0.45
+var music: AudioStreamPlayer
+var current_track := ""
 var banks: Dictionary = {}
 var voices: Array[AudioStreamPlayer] = []
 var next_voice := 0
@@ -34,6 +38,12 @@ func _ready() -> void:
 		var player := AudioStreamPlayer.new()
 		add_child(player)
 		voices.append(player)
+	music = AudioStreamPlayer.new()
+	add_child(music)
+	# MP3 loop points are set on the stream, but a finished signal is a cheap
+	# belt-and-braces restart if a decoder ever drops the loop.
+	music.finished.connect(func() -> void:
+		if current_track != "" and music_volume > 0.0: music.play())
 	for name in BANKS:
 		banks[name] = load_bank(String(name), int(BANKS[name]))
 
@@ -71,8 +81,35 @@ func play(name: String, gain: float = 0.0, jitter: float = 0.07) -> void:
 	player.volume_db = linear_to_db(clampf(volume, 0.001, 1.0)) + gain
 	player.play()
 
+# Switching to the track already playing is a no-op, so this is safe to call
+# every frame from the state machine.
+func play_music(track: String) -> void:
+	if track == current_track: return
+	current_track = track
+	if track == "" or music_volume <= 0.0:
+		music.stop()
+		return
+	start_track()
+
+func start_track() -> void:
+	var stream := load(MUSIC_DIR + current_track + ".mp3") as AudioStream
+	if stream == null: return
+	if stream is AudioStreamMP3: stream.loop = true
+	music.stream = stream
+	music.volume_db = linear_to_db(clampf(music_volume, 0.001, 1.0))
+	music.play()
+
+func set_music_volume(value: float) -> void:
+	music_volume = clampf(value, 0.0, 1.0)
+	if music_volume <= 0.0:
+		music.stop()
+	else:
+		music.volume_db = linear_to_db(music_volume)
+		if not music.playing and current_track != "": start_track()
+
 func set_volume(value: float) -> void:
 	volume = clampf(value, 0.0, 1.0)
+	enabled = volume > 0.0
 
 func stop_all() -> void:
 	for player in voices:
