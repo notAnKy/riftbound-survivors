@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 283
+const EXPECTED_CHECKS := 304
 var checks := 0
 
 func _initialize() -> void:
@@ -48,6 +48,7 @@ func bootstrap() -> void:
 	await test_shop_buying()
 	await test_weapon_combining()
 	await test_combine_in_the_shop()
+	await test_coop_lobby()
 	await test_coop_two_players()
 	await test_coop_movement()
 	await test_coop_down_and_revive()
@@ -1091,6 +1092,90 @@ func test_slider_sweeping() -> void:
 	game.free()
 
 # --- co-op: two players, one arena -------------------------------------------
+
+# CO-OP opens a join screen, not a run: hold to join, pick a survivor each, pick
+# a starting weapon each, and only then does anything start.
+func test_coop_lobby() -> void:
+	var game = load("res://Main.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	game.profile.persist = false
+	# Pinned, or the test would pass or fail depending on what the machine it
+	# runs on happens to have unlocked.
+	game.profile.data.unlocked_characters = [0, 1, 2]
+	game.profile.data.unlocked_guns = [0, 1]
+
+	game.handle_menu_action("coop")
+	check("CO-OP opens the lobby rather than a run (%s)" % game.state, game.state == "lobby")
+	check("with nobody joined yet (%d)" % game.lobby.count(), game.lobby.count() == 0)
+	# The lobby is reachable straight off the title, so it draws with no run
+	# behind it. Everything it reads has to cope with there being no survivors
+	# at all -- the weapon panel used to ask for survivor 0 and index -1.
+	check("and nothing to read a survivor from",
+		game.session.seat(0) == null and game.session.class_counts(null).is_empty())
+
+	# joining is a hold, so a tap must not sign anybody up
+	game.lobby.tick_join(0, 0.1, true)
+	check("a tap does not join (%.0f%% held)" % (game.lobby.hold_ratio(0) * 100.0),
+		not bool(game.lobby.joined[0]) and game.lobby.hold_ratio(0) > 0.0)
+	game.lobby.tick_join(0, 0.05, false)
+	check("and letting go loses the progress", is_zero_approx(game.lobby.hold_ratio(0)))
+	check("holding it through joins", game.lobby.tick_join(0, Lobby.HOLD_TIME, true) and bool(game.lobby.joined[0]))
+
+	# one player cannot take a co-op run out on their own
+	game.lobby.locked[0] = true
+	game.advance_lobby()
+	check("one player alone cannot move on (%s)" % game.lobby.stage, game.lobby.stage == "character")
+	game.lobby.locked[0] = false
+
+	game.lobby.tick_join(1, Lobby.HOLD_TIME, true)
+	check("the second player joins from the same screen", game.lobby.everyone_in())
+
+	# each seat steers its own row
+	game.handle_verb("nav_right", 1)
+	check("the two seats pick separately (%d / %d)" % [game.lobby.character[0], game.lobby.character[1]],
+		int(game.lobby.character[0]) != int(game.lobby.character[1]))
+	var owned: Array = game.profile.unlocked_guns_or_characters("characters")
+	var strayed := false
+	for i in range(12):
+		game.handle_verb("nav_right", 1)
+		if not (int(game.lobby.character[1]) in owned): strayed = true
+	check("and never onto a character this profile does not own (%s)" % str(owned), not strayed)
+
+	# a locked seat stops moving, so a confirmed pick stays put
+	var settled: int = int(game.lobby.character[1])
+	game.handle_verb("confirm", 1)
+	game.handle_verb("nav_right", 1)
+	check("a locked pick cannot drift (%d)" % game.lobby.character[1], int(game.lobby.character[1]) == settled)
+
+	var wanted_a: int = int(game.lobby.character[0])
+	var wanted_b: int = settled
+	game.handle_verb("confirm", 0)
+	check("both locked moves on to the weapons (%s)" % game.lobby.stage, game.lobby.stage == "weapon")
+	check("and unlocks them for the new choice", not bool(game.lobby.locked[0]) and not bool(game.lobby.locked[1]))
+	check("still in the lobby, not in a run (%s)" % game.state, game.state == "lobby")
+
+	# back undoes the stage rather than leaving the screen
+	game.handle_verb("back", 0)
+	check("back returns to the survivors (%s)" % game.lobby.stage, game.lobby.stage == "character")
+	check("and stays in the lobby (%s)" % game.state, game.state == "lobby")
+
+	# forward again, pick a weapon each, and the last lock starts the run
+	game.handle_verb("confirm", 0)
+	game.handle_verb("confirm", 1)
+	game.handle_verb("nav_right", 0)
+	var wanted_gun: int = int(game.lobby.gun[0])
+	game.handle_verb("confirm", 0)
+	check("one player ready does not start it (%s)" % game.state, game.state == "lobby")
+	game.handle_verb("confirm", 1)
+	check("both ready starts the run (%s)" % game.state, game.state == "playing")
+	check("with two survivors", game.session.seats() == 2)
+	check("each as the survivor they picked (%d / %d)" % [game.session.seat(0).character, game.session.seat(1).character],
+		game.session.seat(0).character == wanted_a and game.session.seat(1).character == wanted_b)
+	var opening: String = String(GunCatalog.get_gun(wanted_gun).weapon)
+	check("and holding the weapon they picked (%s)" % game.session.seat(0).weapons[0].id,
+		game.session.seat(0).weapons[0].id == opening)
+	game.free()
 
 func coop_game() -> Node:
 	var game = load("res://Main.tscn").instantiate()

@@ -29,6 +29,10 @@ const MAX_WEAPONS := 6
 # solo path never learn there is a list.
 var survivors: Array[Survivor] = []
 var coop := false
+# What each seat takes into the run, chosen in the co-op lobby. Solo leaves
+# these empty and both fall back to the single armory selection.
+var seat_characters: Array[int] = []
+var seat_guns: Array[int] = []
 var run_time := 0.0
 var spawn_timer := 0.0
 var kills := 0
@@ -59,7 +63,11 @@ var rift_effects_enabled := true:
 # every caller, seat 0 keeps answering to the singular names it always had: the
 # HUD, the shop screen and the whole test suite are solo-shaped and stay that
 # way, and only the paths that genuinely handle two players take a seat.
+# Null before a run exists. The co-op lobby is reachable straight from the title
+# on a cold boot, and it draws before reset_run has built anybody, so every
+# caller that can be on screen without a run has to cope with that.
 func seat(index: int) -> Survivor:
+	if survivors.is_empty(): return null
 	return survivors[clampi(index, 0, survivors.size() - 1)]
 
 func seats() -> int:
@@ -201,14 +209,16 @@ func build_survivor(index: int, count: int) -> Survivor:
 	var who := Survivor.new()
 	who.seat = index
 	who.device = "any" if count == 1 else ("keyboard" if index == 0 else "pad")
-	var character := CharacterCatalog.get_character(selected_character)
-	who.character = selected_character
+	var chosen: int = int(seat_characters[index]) if index < seat_characters.size() else selected_character
+	var character := CharacterCatalog.get_character(chosen)
+	who.character = chosen
 	who.weapon_slots = int(character.get("slots", MAX_WEAPONS))
 	who.allowed_kinds = character.get("kinds", [])
 	who.shop.allowed_kinds = who.allowed_kinds
 	# The armory pick only sticks if this character is allowed to hold it;
 	# otherwise the character's own weapon is the fallback.
-	var opening := String(GunCatalog.get_gun(selected_gun).weapon)
+	var starter: int = int(seat_guns[index]) if index < seat_guns.size() else selected_gun
+	var opening := String(GunCatalog.get_gun(starter).weapon)
 	if not WeaponCatalog.allows(opening, who.allowed_kinds):
 		opening = String(character.weapon)
 	var rack: Array[Weapon] = [Weapon.new(opening, 1)]
@@ -249,13 +259,17 @@ func on_player_hit() -> void:
 	add_shake(Balance.SHAKE_PLAYER_HIT)
 	audio.play("player_hurt", 2.0)
 
-func apply_character(index: int) -> void:
+# With no argument every survivor keeps the character it was built with, which
+# is what co-op needs -- the two seats picked separately. Solo passes the one
+# armory selection and it lands on everybody.
+func apply_character(index: int = -1) -> void:
 	if survivors.is_empty(): return
-	selected_character = index
-	var character := CharacterCatalog.get_character(index)
+	if index >= 0:
+		selected_character = index
+		for who in survivors: who.character = index
 	for who in survivors:
 		if not is_instance_valid(who.player): continue
-		who.character = index
+		var character := CharacterCatalog.get_character(who.character)
 		rebuild_stats(false, who)
 		who.player.base_speed = float(character.speed)
 		# A full modulate drains the sprite art, so the character colour is only
@@ -460,6 +474,7 @@ func synergy_count(of: String, who: Survivor = null) -> int:
 func class_counts(who: Survivor = null) -> Dictionary:
 	var owner := who if who != null else me
 	var counts := {}
+	if owner == null: return counts
 	for weapon in owner.weapons:
 		for id in WeaponCatalog.classes_of(weapon.id):
 			counts[id] = int(counts.get(id, 0)) + 1

@@ -22,6 +22,7 @@ gone. What is left of the old shape is the state machine and the menu drawing.
 - `scripts/lib/gamepad.gd`: pad bindings, brand detection and button glyphs.
 - `scripts/lib/controls.gd`: per-device movement actions, for two on one machine.
 - `scripts/game/survivor.gd`: one player's half of a run; a session holds one or two.
+- `scripts/game/lobby.gd`: the co-op join screen — who is in, and what they picked.
 - `scripts/lib/gamepad.gd`: pad bindings, brand detection and button glyphs.
 - `scripts/save/profile_manager.gd`: persistent coins and unlocks.
 - `assets/sprites/`: the sprites the game loads, cut from the Kenney pack in

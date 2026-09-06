@@ -6,7 +6,7 @@ extends Node2D
 
 # Screens whose rows can be clicked.
 const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause",
-	"paused", "level_up", "confirm_quit"]
+	"paused", "level_up", "confirm_quit", "lobby"]
 # Settings rows that hold a value rather than a yes/no, so left and right
 # adjust them instead of activating them.
 const SLIDER_ROWS := ["sfx", "music"]
@@ -42,6 +42,9 @@ var menu_hover := ""
 # Two players at one machine. The keyboard drives seat 0 and the pad seat 1;
 # solo leaves this false and everything below collapses back to one seat.
 var coop := false
+# The co-op join screen. Held here rather than on the session because none of
+# the survivors exist until what is decided here is handed to reset_run.
+var lobby := Lobby.new()
 # Which device the player last used, so every on-screen prompt names the thing
 # actually in their hands instead of always naming a key.
 var input_device := "keyboard":
@@ -162,6 +165,7 @@ func _process(delta: float) -> void:
 	if state in MOUSE_STATES and mouse_active():
 		sync_hover(get_viewport().get_mouse_position())
 	poll_stick(delta)
+	poll_lobby(delta)
 	# Both ways of sweeping a volume bar, and one disk write when the sweep
 	# stops rather than sixty a second while it is happening.
 	var swept := drag_slider()
@@ -198,6 +202,7 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 		"confirm_quit": items.assign(["quit_run", "keep_playing"])
 		"level_up":
 			if session == null: return items
+			if session.seat(at_seat) == null: return items
 			for i in range(session.seat(at_seat).upgrades.size()): items.append("upgrade_%d" % i)
 		"shop":
 			if session == null: return items
@@ -206,6 +211,7 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 			for i in range(GameUI.SHOP_CARDS): items.append("buy_%d" % i)
 			items.append("reroll")
 			items.append("go")
+			if session.seat(at_seat) == null: return items
 			for i in range(session.seat(at_seat).weapons.size()):
 				items.append("sell_%d" % i)
 				if session.can_combine(i, at_seat): items.append("combine_%d" % i)
@@ -282,6 +288,81 @@ func activate_menu(at_seat: int = 0) -> void:
 	if index >= 0 and index < items.size():
 		handle_menu_action(items[index], at_seat)
 
+# CO-OP does not start a run: it opens the screen where two people join, pick a
+# survivor each and pick a starting weapon each. Only the last of those starts
+# anything.
+func open_lobby() -> void:
+	coop = true
+	lobby.reset(profile.unlocked_guns_or_characters("characters"),
+		profile.unlocked_guns_or_characters("guns"))
+	state = "lobby"
+
+# Joining is a hold, so it is polled rather than driven off a key event: a tap
+# must not sign anybody up.
+func poll_lobby(delta: float) -> void:
+	if state != "lobby": return
+	for i in range(Lobby.SEATS):
+		var held := false
+		if i == 0: held = Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_ENTER)
+		elif Gamepad.connected(): held = Input.is_joy_button_pressed(0, Gamepad.CROSS)
+		if lobby.tick_join(i, delta, held):
+			input_device = "keyboard" if i == 0 else "pad"
+			audio.play("ui_click", 0.0)
+
+# The lobby is not a list: each seat steers its own row, and nobody moves on
+# until every seat has locked its pick.
+func lobby_verb(verb: String, at_seat: int) -> bool:
+	if not bool(lobby.joined[at_seat]):
+		# An unjoined seat can only back out, and only if it is the last one on
+		# the screen -- otherwise Circle would eject the player who did join.
+		if verb == "back" and lobby.count() == 0:
+			leave_lobby()
+			return true
+		return false
+	match verb:
+		"nav_left", "nav_up":
+			lobby.move(at_seat, -1)
+			audio.play("ui_move", -5.0)
+			return true
+		"nav_right", "nav_down":
+			lobby.move(at_seat, 1)
+			audio.play("ui_move", -5.0)
+			return true
+		"confirm":
+			if not lobby.locked[at_seat]:
+				lobby.locked[at_seat] = true
+				audio.play("ui_click", -2.0)
+			advance_lobby()
+			return true
+		"back":
+			back_out_of_lobby(at_seat)
+			return true
+	return false
+
+# Nobody moves on alone: the stage changes only once both seats have locked,
+# and the last stage starts the run rather than advancing.
+func advance_lobby() -> void:
+	if not lobby.all_locked(): return
+	if lobby.last_stage():
+		start_run(true)
+		return
+	lobby.advance()
+
+# Back always undoes the last thing this seat did: its lock, then the stage,
+# then its own place on the screen.
+func back_out_of_lobby(at_seat: int) -> void:
+	if bool(lobby.locked[at_seat]):
+		lobby.locked[at_seat] = false
+		return
+	if lobby.step_back(): return
+	lobby.joined[at_seat] = false
+	lobby.hold[at_seat] = 0.0
+	if lobby.count() == 0: leave_lobby()
+
+func leave_lobby() -> void:
+	coop = false
+	state = "title"
+
 func start_run(two_player: bool = false) -> void:
 	coop = two_player
 	if not profile.is_gun_unlocked(selected_gun):
@@ -292,8 +373,15 @@ func start_run(two_player: bool = false) -> void:
 	session.selected_character = selected_character
 	session.danger = danger
 	session.coop = coop
+	# Empty in solo, so build_survivor falls back to the armory selection.
+	var picked_characters: Array[int] = lobby.characters() if coop else ([] as Array[int])
+	var picked_guns: Array[int] = lobby.guns() if coop else ([] as Array[int])
+	session.seat_characters = picked_characters
+	session.seat_guns = picked_guns
 	session.reset_run()
-	session.apply_character(selected_character)
+	# No argument: every survivor keeps the character it was built with, which in
+	# co-op is the one that seat picked for itself.
+	session.apply_character()
 	state = "playing"
 
 func on_run_ended() -> void:
@@ -341,12 +429,15 @@ func handle_menu_action(action: String, at_seat: int = 0) -> void:
 	if action.begins_with("danger_"):
 		set_danger(int(action.trim_prefix("danger_")))
 		return
+	if action.begins_with("pick_"):
+		lobby.set_selection(at_seat, int(action.trim_prefix("pick_")))
+		return
 	if action.begins_with("upgrade_"):
 		choose_upgrade(int(action.trim_prefix("upgrade_")), at_seat)
 		return
 	match action:
 		"play": start_run(false)
-		"coop": start_run(true)
+		"coop": open_lobby()
 		"armory": state = "armory"
 		"settings": open_settings()
 		"sfx", "music": set_slider(action, 0.0 if slider_value(action) > 0.0 else 0.7)
@@ -553,6 +644,7 @@ func handle_verb(verb: String, at_seat: int = 0) -> bool:
 				session.rift_nova(at_seat)
 				return true
 		return false
+	if state == "lobby": return lobby_verb(verb, at_seat)
 	if state == "armory":
 		match verb:
 			"nav_left":

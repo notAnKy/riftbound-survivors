@@ -40,6 +40,13 @@ const COOP_BUTTON_TOP := 740.0
 const COOP_SLOT_TOP := 856.0
 const COOP_UPGRADE_TOP := 300.0
 
+# The co-op join screen. One panel per seat, and a row of picks under each.
+const LOBBY_BOX_TOP := 210.0
+const LOBBY_BOX_HEIGHT := 560.0
+const LOBBY_CHIP := Vector2(132, 46)
+const LOBBY_CHIP_GAP := 9.0
+const LOBBY_CHIP_TOP := 646.0
+
 var game: GameController
 
 # The region the current screen is laid out into. Every rect helper below reads
@@ -70,6 +77,7 @@ func build_display_font() -> Font:
 func _draw() -> void:
 	if game == null: return
 	if game.state == "title": draw_title()
+	elif game.state == "lobby": draw_lobby()
 	elif game.state == "armory": draw_armory()
 	elif game.state == "settings": draw_settings("SETTINGS", "ESC: back to title")
 	else:
@@ -137,7 +145,8 @@ func card_rect(index: int) -> Rect2:
 # The level-up cards are laid out the same way, but there are as many of them
 # as the roll produced rather than a fixed four.
 func upgrade_rect(index: int, at_seat: int = 0) -> Rect2:
-	var count: int = maxi(1, game.session.seat(at_seat).upgrades.size())
+	var who := game.session.seat(at_seat)
+	var count: int = maxi(1, who.upgrades.size() if who != null else 1)
 	if not game.coop: return row_rect(index, count, CARD_SIZE, UPGRADE_TOP, CARD_GAP)
 	return grid_rect(index, count, COOP_COLUMNS, CARD_SIZE, COOP_UPGRADE_TOP, CARD_GAP)
 
@@ -233,7 +242,14 @@ func menu_action_at(point: Vector2) -> String:
 		var rows := game.menu_items()
 		for i in range(rows.size()):
 			if confirm_row_rect(i).has_point(point): return rows[i]
+	elif game.state == "lobby":
+		# Only seat 0 has a mouse, so only seat 0's row is clickable.
+		if bool(game.lobby.joined[0]):
+			var picks := game.lobby.options()
+			for i in range(picks.size()):
+				if lobby_chip_rect(i, picks.size()).has_point(point): return "pick_%d" % int(picks[i])
 	elif game.state == "level_up":
+		if game.session.seat(0) == null: return ""
 		for i in range(game.session.seat(0).upgrades.size()):
 			if upgrade_rect(i, 0).has_point(point): return "upgrade_%d" % i
 	elif game.state == "shop":
@@ -373,6 +389,116 @@ func draw_title() -> void:
 	text_centered(SCREEN.x * 0.5, 900, "COINS  %d" % game.profile.coins(), 20, Color("ffcf77"))
 	draw_hint_row(SCREEN.x * 0.5, 946, [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"]])
 	if not on_pad(): text_centered(SCREEN.x * 0.5, 1000, "or click  •  P  A  S  Q", 15, Color("8ea4cb"))
+
+# --- co-op lobby -------------------------------------------------------------
+
+func lobby_chip_rect(index: int, count: int) -> Rect2:
+	var total := LOBBY_CHIP.x * count + LOBBY_CHIP_GAP * (count - 1)
+	return Rect2(Vector2(pane.position.x + (pane.size.x - total) * 0.5
+		+ float(index) * (LOBBY_CHIP.x + LOBBY_CHIP_GAP), LOBBY_CHIP_TOP), LOBBY_CHIP)
+
+func draw_lobby() -> void:
+	draw_menu_background()
+	var lobby := game.lobby
+	heading(SCREEN.x * 0.5, 118, "CO-OP", 44, Color("ffcf77"))
+	text_centered(SCREEN.x * 0.5, 164,
+		"PICK A SURVIVOR EACH" if lobby.stage == "character" else "PICK A STARTING WEAPON EACH",
+		20, Color("aabce1"))
+	for i in range(Lobby.SEATS):
+		use_pane(i)
+		draw_lobby_pane(i)
+	use_pane(0)
+	var footer := LOBBY_BOX_TOP + LOBBY_BOX_HEIGHT + 62.0
+	if not lobby.everyone_in():
+		text_centered(SCREEN.x * 0.5, footer, "BOTH PLAYERS HAVE TO JOIN", 20, Color("ffcf77"))
+	elif lobby.all_locked():
+		text_centered(SCREEN.x * 0.5, footer, "STARTING...", 20, Color("69f4d4"))
+	else:
+		draw_hint_row(SCREEN.x * 0.5, footer,
+			[["nav", "ARROWS", "CHOOSE"], ["confirm", "ENTER", "LOCK IN"], ["back", "ESC", "BACK"]])
+
+func draw_lobby_pane(at_seat: int) -> void:
+	var lobby := game.lobby
+	var accent := Color("69f4d4") if at_seat == 0 else Color("ffcf77")
+	var joined := bool(lobby.joined[at_seat])
+	var box := Rect2(pane.position.x + 56.0, LOBBY_BOX_TOP, pane.size.x - 112.0, LOBBY_BOX_HEIGHT)
+	draw_panel(box, Color(0.07, 0.10, 0.19, 0.92) if joined else Color(0.04, 0.06, 0.12, 0.7),
+		accent if joined else Color("2b3550"), 3.0 if joined else 1.5)
+	text_centered(box.get_center().x, box.position.y + 42.0,
+		"PLAYER %d   —   %s" % [at_seat + 1, "KEYBOARD" if at_seat == 0 else "CONTROLLER"],
+		18, accent if joined else Color("54617d"))
+	if not joined:
+		draw_lobby_join(at_seat, box, accent)
+		return
+	if lobby.stage == "character": draw_lobby_character(at_seat, box)
+	else: draw_lobby_weapon(at_seat, box)
+	var picks := lobby.options()
+	for i in range(picks.size()):
+		draw_lobby_chip(i, picks, at_seat, accent)
+	if bool(lobby.locked[at_seat]):
+		var badge := Rect2(box.get_center().x - 110.0, box.end.y - 62.0, 220.0, 40.0)
+		draw_panel(badge, Color(accent.r, accent.g, accent.b, 0.22), accent, 2.0)
+		text_centered(badge.get_center().x, badge.get_center().y + 7.0, "READY", 20, accent)
+
+# The button is drawn per seat rather than through draw_hint, because this is
+# the one screen where the prompt is not about the device last touched: seat 0
+# is the keyboard and seat 1 is the pad, always.
+func draw_lobby_join(at_seat: int, box: Rect2, accent: Color) -> void:
+	var centre := box.get_center()
+	text_centered(centre.x, centre.y - 58.0, "HOLD TO JOIN", 26, Color("d6e2fa"))
+	if at_seat == 0:
+		draw_key_cap(Rect2(centre.x - 46.0, centre.y - 32.0, 92.0, 34.0), "SPACE")
+	else:
+		draw_pad_badge(Vector2(centre.x, centre.y - 15.0), Gamepad.glyph(Gamepad.CROSS))
+	var bar := Rect2(centre.x - 170.0, centre.y + 34.0, 340.0, 14.0)
+	draw_rect(bar, Color("101a30"), true)
+	var filled := game.lobby.hold_ratio(at_seat)
+	if filled > 0.0:
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * filled, bar.size.y)), accent, true)
+	draw_rect(bar, Color("3d527d"), false, 1.5)
+
+func draw_lobby_character(at_seat: int, box: Rect2) -> void:
+	var def := CharacterCatalog.get_character(int(game.lobby.character[at_seat]))
+	var centre := box.get_center().x
+	heading(centre, box.position.y + 116.0, String(def.name), 34, def.color)
+	text_centered(centre, box.position.y + 154.0, String(def.description), 17, Color("d1dcf5"))
+	text_centered(centre, box.position.y + 190.0, "HP %d   •   SPEED %d" % [int(def.hp), int(def.speed)],
+		16, Color("9fb3d9"))
+	var kinds: Array = def.get("kinds", [])
+	var shape := "%d weapon slots" % int(def.get("slots", 6))
+	if not kinds.is_empty(): shape += "   •   %s weapons only" % String(kinds[0]).to_upper()
+	text_centered(centre, box.position.y + 224.0, shape, 15, Color("ffcf77"))
+	var perks := ItemCatalog.describe(def)
+	draw_wrapped(Vector2(box.position.x + 44.0, box.position.y + 268.0),
+		perks if perks != "" else "No stat modifiers", 16, Color("a9bbde"), box.size.x - 88.0)
+
+func draw_lobby_weapon(at_seat: int, box: Rect2) -> void:
+	var def := GunCatalog.get_gun(int(game.lobby.gun[at_seat]))
+	var id := String(def.weapon)
+	var weapon := WeaponCatalog.get_weapon(id)
+	var centre := box.get_center().x
+	Icons.weapon(self, id, Vector2(centre, box.position.y + 116.0), 38.0, def.color)
+	heading(centre, box.position.y + 196.0, String(def.name), 32, def.color)
+	text_centered(centre, box.position.y + 234.0, String(def.description), 17, Color("d1dcf5"))
+	var dps: float = WeaponCatalog.damage_at(id, 1) * float(weapon.shots) / WeaponCatalog.cooldown_at(id, 1)
+	text_centered(centre, box.position.y + 274.0, "%.0f dps   •   %d range   •   %s" % [
+		dps, int(weapon.range), String(weapon.kind).to_upper()], 16, Color("9fb3d9"))
+	# No run exists yet, so there is nothing held for a class chip to light up --
+	# they are drawn here purely to say what the weapon counts toward.
+	draw_class_chips(Vector2(centre - 60.0, box.position.y + 314.0), weapon.get("classes", []),
+		game.session, null)
+
+func draw_lobby_chip(index: int, picks: Array, at_seat: int, accent: Color) -> void:
+	var lobby := game.lobby
+	var value := int(picks[index])
+	var rect := lobby_chip_rect(index, picks.size())
+	var chosen := lobby.selection(at_seat) == value
+	var tint: Color = CharacterCatalog.get_character(value).color if lobby.stage == "character" else GunCatalog.get_gun(value).color
+	draw_panel(rect, Color(tint.r, tint.g, tint.b, 0.20) if chosen else Color("141c31"),
+		accent if chosen else Color(tint.r, tint.g, tint.b, 0.45), 3.0 if chosen else 1.0)
+	var label: String = String(CharacterCatalog.get_character(value).name) if lobby.stage == "character" else String(GunCatalog.get_gun(value).name)
+	text_centered(rect.get_center().x, rect.get_center().y + 5.0, label, 12,
+		Color("ffffff") if chosen else Color("8ea4cb"))
 
 func draw_armory() -> void:
 	draw_menu_background()

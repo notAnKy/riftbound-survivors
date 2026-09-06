@@ -75,6 +75,16 @@ func is_gun_unlocked(index: int) -> bool:
 func is_character_unlocked(index: int) -> bool:
 	return index in data.unlocked_characters
 
+# The unlocked indices of either catalog, in order. The co-op lobby walks these
+# rather than the whole catalog, so a seat cannot settle on something unowned.
+func unlocked_guns_or_characters(which: String) -> Array:
+	var owned: Array = data.unlocked_characters if which == "characters" else data.unlocked_guns
+	var total: int = CharacterCatalog.all().size() if which == "characters" else GunCatalog.all().size()
+	var list: Array = []
+	for i in range(total):
+		if i in owned: list.append(i)
+	return list if not list.is_empty() else [0]
+
 func unlock_gun(index: int, cost: int) -> bool:
 	if is_gun_unlocked(index): return true
 	if coins() < cost: return false
