@@ -35,17 +35,29 @@ const SPAWN_INTERVAL_MIN := 0.16
 # complaint landed.
 const SPAWN_BATCH_EVERY := 5
 
-# Healing. A drop on some kills, plus a steady trickle every so many kills so
-# a long clean wave repays the player even when no bandage rolls.
-# Healing used to scale with the kill count, and the kill count explodes: by
-# round 7 the passive drip out-paced a whole crowd hitting you, so standing
-# still was the strongest play. All three sources are now scarce, and lifesteal
-# is capped per hit so a piercing crit cannot refill the bar.
-const HEALTH_DROP_CHANCE := 0.02
+# Healing, in two halves that must not be confused.
+#
+# In-wave healing has to stay scarce. It used to scale with the kill count, and
+# the kill count explodes with your damage: by round 7 the passive drip
+# out-paced a whole crowd hitting you, so standing still was the strongest play.
+# The bandage roll, the per-kill trickle and lifesteal are all deliberately thin,
+# and lifesteal is capped per hit so a piercing crit cannot refill the bar.
+const HEALTH_DROP_CHANCE := 0.03
 const HEALTH_DROP_AMOUNT := 8
-const HEAL_EVERY_KILLS := 50
-const HEAL_ON_KILLS := 4.0
+const HEAL_EVERY_KILLS := 40
+const HEAL_ON_KILLS := 5.0
 const LIFESTEAL_MAX_PER_HIT := 0.02
+
+# Between-wave healing is the opposite case, and is where the health economy
+# actually lives. Chip damage carries across waves, so without this a run is a
+# one-way ratchet: by wave 6 the player is fighting a harder wave on whatever
+# was left over from the last five, which is exactly the wall play-testing hit.
+# Once per wave, capped at max HP, it cannot be farmed the way a per-kill heal
+# can -- standing still through a wave earns nothing extra.
+const WAVE_CLEAR_HEAL := 0.22
+# A wave survived at a sliver pays a little more, so a bad wave is recoverable
+# without making a good one heal for nothing. Fraction of the missing bar.
+const WAVE_CLEAR_HEAL_MISSING := 0.12
 
 # Shop prices climb per wave. Material income grows far faster than this, so a
 # shallow curve stops the shop mattering by the midgame.

@@ -3,6 +3,10 @@ extends RefCounted
 
 # One entry per enemy. `hp`/`speed` are multipliers against the round curve;
 # `unlock_round` is the first round the type can appear in.
+#
+# The unlock rounds are deliberately one apart from wave 5 onward. Wave 5
+# already carries the first boss and the spawn-batch step, and stacking two
+# new enemy types onto wave 6 as well is what made it a wall.
 static func all() -> Array[Dictionary]:
 	return [
 		{"id":"husk", "name":"HUSK", "texture":"zombie", "behaviour":"chase",
@@ -23,18 +27,18 @@ static func all() -> Array[Dictionary]:
 			"cooldown":0.9, "material":2, "tint":Color(1,1,1), "unlock_round":6},
 		{"id":"warden", "name":"WARDEN", "texture":"warden", "behaviour":"weave",
 			"hp":1.5, "speed":1.25, "radius":12.0, "scale":0.95, "damage":10.0,
-			"cooldown":0.85, "material":2, "tint":Color(0.88,1.0,0.9), "unlock_round":8},
+			"cooldown":0.85, "material":2, "tint":Color(0.88,1.0,0.9), "unlock_round":9},
 		{"id":"splitter", "name":"SPLITTER", "texture":"warden", "behaviour":"chase",
 			"hp":2.1, "speed":0.9, "radius":16.0, "scale":1.25, "damage":9.0,
 			"cooldown":0.9, "material":2, "tint":Color(0.72,1.0,0.78), "unlock_round":5,
 			"splits":{"into":"husk", "count":2}},
 		{"id":"bloater", "name":"BLOATER", "texture":"brute", "behaviour":"chase",
 			"hp":1.3, "speed":1.0, "radius":14.0, "scale":1.1, "damage":5.0,
-			"cooldown":1.0, "material":2, "tint":Color(1.0,0.72,0.55), "unlock_round":6,
+			"cooldown":1.0, "material":2, "tint":Color(1.0,0.72,0.55), "unlock_round":7,
 			"explodes":{"radius":165.0, "damage":26.0}},
 		{"id":"charger", "name":"CHARGER", "texture":"soldier", "behaviour":"charge",
 			"hp":1.35, "speed":0.75, "radius":13.0, "scale":1.05, "damage":15.0,
-			"cooldown":1.2, "material":3, "tint":Color(1.0,0.86,0.6), "unlock_round":7,
+			"cooldown":1.2, "material":3, "tint":Color(1.0,0.86,0.6), "unlock_round":8,
 			"charge_range":340.0, "charge_speed":5.4, "charge_windup":0.65, "charge_time":0.5},
 	]
 

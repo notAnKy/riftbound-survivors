@@ -12,14 +12,17 @@ static func pool() -> Array[Dictionary]:
 		{"title":"NECRO PLATING", "stats":{"max_hp":15.0}, "rarity":"COMMON"},
 		{"title":"SCRAP WEAVE", "stats":{"armor":3.0}, "rarity":"COMMON"},
 		{"title":"SOUL MAGNET", "stats":{"pickup_radius":28.0}, "rarity":"COMMON"},
+		{"title":"KNIT FLESH", "stats":{"hp_regen":0.5}, "rarity":"COMMON"},
 		{"title":"PHASE TREADS", "stats":{"speed":9.0}, "rarity":"RARE"},
 		{"title":"KEEN SIGHT", "stats":{"crit_chance":5.0}, "rarity":"RARE"},
 		{"title":"LONG LENS", "stats":{"attack_range":14.0}, "rarity":"RARE"},
 		{"title":"VEIN TAP", "stats":{"lifesteal":3.0}, "rarity":"RARE"},
 		{"title":"SALVAGER", "stats":{"harvesting":3.0}, "rarity":"RARE"},
+		{"title":"MENDING RUNE", "stats":{"hp_regen":1.1}, "rarity":"RARE"},
 		{"title":"RIFT CROWN", "stats":{"damage":18.0, "max_hp":20.0}, "rarity":"LEGENDARY"},
 		{"title":"VOID ENGINE", "stats":{"attack_speed":20.0, "crit_chance":6.0}, "rarity":"LEGENDARY"},
 		{"title":"AEGIS SHARD", "stats":{"armor":9.0, "dodge":5.0}, "rarity":"LEGENDARY"},
+		{"title":"LIVING CORE", "stats":{"hp_regen":2.2, "max_hp":25.0}, "rarity":"LEGENDARY"},
 	]
 
 static func roll_choices(rng: RandomNumberGenerator, round_number: int, luck: float = 0.0) -> Array[Dictionary]:

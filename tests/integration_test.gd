@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 186
+const EXPECTED_CHECKS := 213
 var checks := 0
 
 func _initialize() -> void:
@@ -65,6 +65,9 @@ func bootstrap() -> void:
 	await test_audio_banks()
 	await test_music()
 	await test_healing_is_scarce()
+	await test_between_wave_healing()
+	await test_level_up_selection()
+	await test_controller()
 	test_shop_prices_climb()
 	await test_melee_archetype()
 	await test_orbital_archetype()
@@ -476,6 +479,12 @@ func click(game, at: Vector2) -> void:
 	event.position = at
 	game._unhandled_input(event)
 
+func pad_press(game, button: int) -> void:
+	var event := InputEventJoypadButton.new()
+	event.button_index = button
+	event.pressed = true
+	game._unhandled_input(event)
+
 func test_menu_navigation() -> void:
 	var game = load("res://Main.tscn").instantiate()
 	root.add_child(game)
@@ -696,7 +705,7 @@ func test_every_icon_exists() -> void:
 		if Icons.texture(Icons.WEAPON_PATH % def.id) == null:
 			missing.append("weapon:" + String(def.id))
 	for def in ItemCatalog.all():
-		if Icons.texture(Icons.ITEM_PATH % def.id) == null:
+		if Icons.texture(Icons.item_path(String(def.id))) == null:
 			missing.append("item:" + String(def.id))
 	check("every weapon and item has an icon (%s)" % ("all present" if missing.is_empty() else str(missing)), missing.is_empty())
 	check("a missing icon degrades instead of crashing", Icons.texture("res://assets/icons/does_not_exist.svg") == null)
@@ -766,6 +775,142 @@ func test_healing_is_scarce() -> void:
 	var ceiling: float = s.player.max_hp * Balance.LIFESTEAL_MAX_PER_HIT
 	check("one huge hit cannot refill the bar (%.1f of %.1f allowed)" % [leeched, ceiling], leeched <= ceiling + 0.01)
 	check("bandages are rare (%.0f%% of kills)" % (Balance.HEALTH_DROP_CHANCE * 100.0), Balance.HEALTH_DROP_CHANCE <= 0.03)
+	game.free()
+
+# The wave-6 wall was a health economy problem, not a damage one: chip damage
+# carried across a whole run with nothing that could ever answer it.
+func test_between_wave_healing() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	s.player.hp = s.player.max_hp * 0.3
+	var before: float = s.player.hp
+	s.finish_wave()
+	var gained: float = s.player.hp - before
+	check("clearing a wave heals a real chunk (%.0f hp)" % gained, gained > s.player.max_hp * 0.2)
+	check("but not a full refill (%.0f/%.0f)" % [s.player.hp, s.player.max_hp], s.player.hp < s.player.max_hp)
+	s.player.hp = s.player.max_hp
+	s.finish_wave()
+	check("and it cannot overflow the bar", is_equal_approx(s.player.hp, s.player.max_hp))
+
+	# Regen has to be something a build can actually invest in, or the stat is
+	# a number on a sheet that nothing ever grants.
+	var levels: Array = UpgradeCatalog.pool().filter(func(reward: Dictionary) -> bool:
+		return reward.stats.has("hp_regen"))
+	check("levelling up can grant regen (%d rewards)" % levels.size(), levels.size() >= 2)
+	var sold: Array = ItemCatalog.all().filter(func(def: Dictionary) -> bool:
+		return def.stats.has("hp_regen") or (def.has("per") and String(def.per.stat) == "hp_regen"))
+	check("and the shop sells it (%d items)" % sold.size(), sold.size() >= 3)
+
+	# and it has to actually tick on the player. finish_wave sent the game to
+	# the shop, which pauses the tree -- and regen lives in _physics_process.
+	clear_field(s)
+	game.state = "playing"
+	s.round_phase = "shop"
+	s.player.stats.set_stat("hp_regen", 30.0)
+	s.player.hp = 10.0
+	await step(20)
+	check("regen ticks while the player is alive (%.1f hp)" % s.player.hp, s.player.hp > 10.0)
+	game.free()
+
+# Level-up rewards were keyboard-only: 1 to 4 and nothing else.
+func test_level_up_selection() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	s.upgrades = UpgradeCatalog.roll_choices(s.rng, 1, 0.0)
+	game.state = "level_up"
+	check("the level-up screen is a navigable list (%d rows)" % game.menu_items().size(),
+		game.menu_items().size() == s.upgrades.size())
+	var matched := true
+	for i in range(s.upgrades.size()):
+		if game.ui.menu_action_at(game.ui.upgrade_rect(i).get_center()) != "upgrade_%d" % i: matched = false
+	check("every card hit-tests to its own reward", matched)
+
+	# a click takes that reward and leaves the screen
+	s.upgrade_totals = {}
+	click(game, game.ui.upgrade_rect(1).get_center())
+	check("clicking a card takes the reward (%s)" % str(s.upgrade_totals), not s.upgrade_totals.is_empty())
+	check("and leaves the level-up screen (%s)" % game.state, game.state != "level_up")
+
+	# the arrows and Enter reach the same card
+	s.upgrades = UpgradeCatalog.roll_choices(s.rng, 1, 0.0)
+	s.upgrade_totals = {}
+	game.state = "level_up"
+	check("the cursor starts on the first card (%d)" % game.menu_index, game.menu_index == 0)
+	press(game, KEY_RIGHT)
+	check("right moves along the cards (%d)" % game.menu_index, game.menu_index == 1)
+	press(game, KEY_ENTER)
+	check("enter takes the focused card", not s.upgrade_totals.is_empty() and game.state != "level_up")
+
+	# the shop opens on NEXT WAVE, because Space has always meant "leave"
+	game.state = "playing"
+	s.finish_wave()
+	check("the shop opens on its exit button (%s)" % game.focused_action(), game.focused_action() == "go")
+	check("and its cards, buttons and slots are one list (%d rows)" % game.menu_items().size(),
+		game.menu_items().size() >= GameUI.SHOP_CARDS + 2)
+	check("laid out as the bands it is drawn in (%d)" % game.menu_groups().size(), game.menu_groups().size() == 3)
+	game.free()
+
+# A PS4 pad has to reach everything a keyboard can, and the prompts have to
+# name whichever device is actually in the player's hands.
+func test_controller() -> void:
+	var game = load("res://Main.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	game.profile.persist = false
+
+	var bound := 0
+	for action in ["move_up", "move_down", "move_left", "move_right"]:
+		for event in InputMap.action_get_events(action):
+			if event is InputEventJoypadMotion or event is InputEventJoypadButton: bound += 1
+	# Four actions, a stick axis and a d-pad button each. The InputMap is global
+	# and this suite builds many games, so a count over eight means the binding
+	# is being stapled on again per instance.
+	check("the pad drives the movement actions (%d events)" % bound, bound == 8)
+
+	game.state = "settings"
+	pad_press(game, JOY_BUTTON_DPAD_DOWN)
+	check("the d-pad walks a menu (%d)" % game.menu_index, game.menu_index == 1)
+	game.menu_index = game.menu_items().find("rift")
+	var rift_before: bool = game.rift_effects_enabled
+	pad_press(game, Gamepad.CROSS)
+	check("cross activates the focused row", game.rift_effects_enabled != rift_before)
+	pad_press(game, Gamepad.CIRCLE)
+	check("circle backs out of a screen (%s)" % game.state, game.state == "title")
+
+	# Options is a dedicated pause, so it reaches the menu from inside a fight
+	# without also being the button that backs out of one.
+	game.state = "playing"
+	pad_press(game, Gamepad.OPTIONS)
+	check("options pauses the game (%s)" % game.state, game.state == "paused")
+	pad_press(game, Gamepad.OPTIONS)
+	check("and unpauses it again (%s)" % game.state, game.state == "playing")
+
+	game.input_device = "keyboard"
+	var push := InputEventJoypadMotion.new()
+	push.axis = JOY_AXIS_LEFT_X
+	push.axis_value = 1.0
+	game._input(push)
+	check("a stick push switches the prompts to the pad (%s)" % game.input_device, game.input_device == "pad")
+	var drift := InputEventJoypadMotion.new()
+	drift.axis = JOY_AXIS_LEFT_X
+	drift.axis_value = 0.1
+	game.input_device = "keyboard"
+	game._input(drift)
+	check("a resting stick does not (%s)" % game.input_device, game.input_device == "keyboard")
+	var key := InputEventKey.new()
+	key.keycode = KEY_UP
+	key.pressed = true
+	game.input_device = "pad"
+	game._input(key)
+	check("and a key switches them back (%s)" % game.input_device, game.input_device == "keyboard")
+
+	# every prompt the UI can draw resolves to a glyph, on either brand of pad
+	var missing: Array[String] = []
+	for verb in ["confirm", "back", "alt", "special", "pause"]:
+		if Gamepad.glyph(game.ui.pad_button(String(verb))) == "": missing.append(String(verb))
+	check("every prompt has a button glyph (%s)" % ("all present" if missing.is_empty() else str(missing)), missing.is_empty())
+	check("an unplugged pad still names its buttons (%s)" % Gamepad.brand(), Gamepad.brand() != "")
+	game.state = "title"
 	game.free()
 
 func test_shop_prices_climb() -> void:

@@ -19,6 +19,8 @@ gone. What is left of the old shape is the state machine and the menu drawing.
 - `scripts/data/`: gun, character, upgrade, enemy, weapon and item catalogs,
   plus `stats.gd` (the character sheet) and `balance.gd` (the curve).
 - `scripts/lib/layers.gd`: physics layer bits.
+- `scripts/lib/gamepad.gd`: pad bindings, brand detection and button glyphs.
+- `scripts/lib/gamepad.gd`: pad bindings, brand detection and button glyphs.
 - `scripts/save/profile_manager.gd`: persistent coins and unlocks.
 - `assets/sprites/`: the sprites the game loads, cut from the Kenney pack in
   `assets/kenney/`.

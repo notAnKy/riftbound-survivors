@@ -18,6 +18,8 @@ const SLOT_SIZE := Vector2(250, 62)
 const SLOT_TOP := 640.0
 const SLOT_GAP := 14.0
 
+const UPGRADE_TOP := 400.0
+
 const ROW_SIZE := Vector2(700, 66)
 const ROW_GAP := 12.0
 const SETTINGS_TOP := 380.0
@@ -95,6 +97,12 @@ func row_rect(index: int, count: int, size: Vector2, top: float, gap: float) -> 
 func card_rect(index: int) -> Rect2:
 	return row_rect(index, SHOP_CARDS, CARD_SIZE, CARD_TOP, CARD_GAP)
 
+# The level-up cards are laid out the same way, but there are as many of them
+# as the roll produced rather than a fixed four.
+func upgrade_rect(index: int) -> Rect2:
+	var count: int = maxi(1, game.session.upgrades.size())
+	return row_rect(index, count, CARD_SIZE, UPGRADE_TOP, CARD_GAP)
+
 func slot_count() -> int:
 	return game.session.weapon_slots
 
@@ -161,6 +169,9 @@ func menu_action_at(point: Vector2) -> String:
 		var rows := game.menu_items()
 		for i in range(rows.size()):
 			if pause_row_rect(i).has_point(point): return rows[i]
+	elif game.state == "level_up":
+		for i in range(game.session.upgrades.size()):
+			if upgrade_rect(i).has_point(point): return "upgrade_%d" % i
 	elif game.state == "shop":
 		for i in range(SHOP_CARDS):
 			if card_rect(i).has_point(point): return "buy_%d" % i
@@ -169,6 +180,99 @@ func menu_action_at(point: Vector2) -> String:
 		if reroll_rect().has_point(point): return "reroll"
 		if go_rect().has_point(point): return "go"
 	return ""
+
+# --- input prompts ------------------------------------------------------------
+#
+# Every screen names its controls through these, so the labels follow whichever
+# device is in the player's hands. `verb` picks the pad button (Cross confirms,
+# Circle backs out); `key` is what the same verb is called on the keyboard,
+# which differs per screen -- the same verb is R in the shop and Q in a fight.
+
+const BADGE := 15.0
+const HINT_GAP := 26.0
+
+func on_pad() -> bool:
+	return game.input_device == "pad"
+
+# A PlayStation face button is a shape, not a letter, and neither bundled font
+# has a glyph for one -- so they are drawn. An Xbox pad puts its letter in the
+# same badge, in the same slot colour, so confirm stays blue and back stays red
+# whichever pad is plugged in.
+func draw_pad_badge(centre: Vector2, glyph: String) -> void:
+	var tint := Gamepad.color(glyph)
+	draw_circle(centre, BADGE, Color(0.07, 0.10, 0.19, 0.95))
+	draw_arc(centre, BADGE, 0.0, TAU, 24, tint, 2.0)
+	var r := BADGE * 0.46
+	match glyph:
+		"cross":
+			draw_line(centre + Vector2(-r, -r), centre + Vector2(r, r), tint, 2.4)
+			draw_line(centre + Vector2(-r, r), centre + Vector2(r, -r), tint, 2.4)
+		"circle":
+			draw_arc(centre, r, 0.0, TAU, 20, tint, 2.4)
+		"square":
+			draw_rect(Rect2(centre - Vector2(r, r), Vector2(r, r) * 2.0), tint, false, 2.4)
+		"triangle":
+			var top := centre + Vector2(0.0, -r * 1.1)
+			var left := centre + Vector2(-r, r * 0.7)
+			var right := centre + Vector2(r, r * 0.7)
+			draw_polyline(PackedVector2Array([top, right, left, top]), tint, 2.4)
+		"dpad":
+			# Filled, not outlined: two outlined bars cross into a four-square
+			# grid that reads as a crosshair rather than a d-pad.
+			var arm := r * 0.40
+			draw_rect(Rect2(centre.x - arm, centre.y - r, arm * 2.0, r * 2.0), tint, true)
+			draw_rect(Rect2(centre.x - r, centre.y - arm, r * 2.0, arm * 2.0), tint, true)
+		"options":
+			for i in range(3):
+				var y := centre.y - 4.0 + float(i) * 4.0
+				draw_line(Vector2(centre.x - r, y), Vector2(centre.x + r, y), tint, 1.8)
+		_:
+			text_centered(centre.x, centre.y + 6.0, glyph, 16, tint)
+
+func draw_key_cap(rect: Rect2, key: String) -> void:
+	draw_panel(rect, Color(0.09, 0.13, 0.23, 0.95), Color("6d84b4"), 1.5)
+	text_centered(rect.get_center().x, rect.get_center().y + 6.0, key, 15, Color("dce7ff"))
+
+func badge_width(key: String) -> float:
+	if on_pad(): return BADGE * 2.0
+	return maxf(BADGE * 2.0, text_width(key, 15) + 18.0)
+
+func hint_width(verb: String, key: String, label: String, size: int) -> float:
+	return badge_width(key) + 10.0 + text_width(label, size)
+
+# Draws one prompt with its badge left-aligned at `at`, vertically centred on it.
+func draw_hint(at: Vector2, verb: String, key: String, label: String, size: int) -> void:
+	var width := badge_width(key)
+	if on_pad():
+		# "nav" is the only verb that is a direction rather than a button, so
+		# it draws the d-pad instead of asking Gamepad for a face glyph.
+		var glyph := "dpad" if verb == "nav" else Gamepad.glyph(pad_button(verb))
+		draw_pad_badge(Vector2(at.x + width * 0.5, at.y), glyph)
+	else: draw_key_cap(Rect2(at.x, at.y - BADGE, width, BADGE * 2.0), key)
+	text_at(Vector2(at.x + width + 10.0, at.y + size * 0.36), label, size, Color("a9bbde"))
+
+func hints_width(hints: Array, size: int) -> float:
+	var total := 0.0
+	for hint in hints:
+		var triple: Array = hint
+		total += hint_width(String(triple[0]), String(triple[1]), String(triple[2]), size) + HINT_GAP
+	return maxf(0.0, total - HINT_GAP)
+
+# `hints` is a list of [verb, key, label] triples, centred as one row.
+func draw_hint_row(centre_x: float, y: float, hints: Array, size: int = 16) -> void:
+	var x := centre_x - hints_width(hints, size) * 0.5
+	for hint in hints:
+		var triple: Array = hint
+		draw_hint(Vector2(x, y), String(triple[0]), String(triple[1]), String(triple[2]), size)
+		x += hint_width(String(triple[0]), String(triple[1]), String(triple[2]), size) + HINT_GAP
+
+func pad_button(verb: String) -> int:
+	match verb:
+		"back": return Gamepad.CIRCLE
+		"alt": return Gamepad.SQUARE
+		"special": return Gamepad.TRIANGLE
+		"pause": return Gamepad.OPTIONS
+	return Gamepad.CROSS
 
 func draw_panel(rect: Rect2, fill: Color, edge: Color, width: float = 2.0) -> void:
 	draw_rect(rect, fill, true)
@@ -188,7 +292,8 @@ func draw_title() -> void:
 	for i in range(buttons.size()):
 		draw_menu_button(menu_button_rect(i), buttons[i][0], buttons[i][1], buttons[i][2])
 	text_centered(SCREEN.x * 0.5, 912, "COINS  %d" % game.profile.coins(), 20, Color("ffcf77"))
-	text_centered(SCREEN.x * 0.5, 952, "Mouse or keyboard: P  A  S  Q", 15, Color("8ea4cb"))
+	draw_hint_row(SCREEN.x * 0.5, 958, [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"]])
+	if not on_pad(): text_centered(SCREEN.x * 0.5, 1012, "or click  •  P  A  S  Q", 15, Color("8ea4cb"))
 
 func draw_armory() -> void:
 	draw_menu_background()
@@ -224,7 +329,9 @@ func draw_armory() -> void:
 		var accent := Color("ffcf77").lerp(Color("ff718b"), float(i) / float(Balance.DANGER_LEVELS - 1))
 		draw_panel(chip, Color("263452") if picked else Color("141c31"), accent if unlocked else Color("2b3550"), 3.0 if picked else 1.5)
 		text_centered(chip.get_center().x, chip.get_center().y + 8, str(i) if unlocked else "-", 22, accent if unlocked else Color("46526e"))
-	text_centered(SCREEN.x * 0.5, 880, "Press PLAY from the main menu to begin", 18, Color("aabce1"))
+	text_centered(SCREEN.x * 0.5, 872, "Press PLAY from the main menu to begin", 18, Color("aabce1"))
+	draw_hint_row(SCREEN.x * 0.5, 934, [["nav", "ARROWS", "DANGER / SURVIVOR"],
+		["alt", "C", "NEXT WEAPON"], ["back", "ESC", "BACK"]])
 
 func draw_menu_background() -> void:
 	fill_screen(Color("0b1020"))
@@ -260,7 +367,16 @@ func draw_hud() -> void:
 	var round_status := "CLEAR HOSTILES" if s.round_phase == "cleanup" else ("SHOP" if s.round_phase == "shop" else "FIGHT")
 	heading_right(right, 50, "WAVE %d / %d  %02d" % [s.round_number, Balance.FINAL_WAVE, int(ceil(s.round_time_left))], 28, Color("ffd166"))
 	text_right(right, 80, "%s  •  KILLS %d" % [round_status, s.kills], 16, Color("ffcf77") if s.round_phase != "combat" else Color("b6c6e8"))
-	text_right(right, 106, "Q DASH %s    E NOVA %s" % ["READY" if s.dash_cooldown <= 0.0 else "%.1fs" % s.dash_cooldown, "READY" if s.nova_cooldown <= 0.0 else "%.1fs" % s.nova_cooldown], 15, Color("b6c6e8"))
+	# The two abilities are the only controls the fight needs named, and they
+	# are the ones that differ most between a keyboard and a pad.
+	var abilities: Array = [
+		["alt", "Q", "DASH  %s" % ("READY" if s.dash_cooldown <= 0.0 else "%.1fs" % s.dash_cooldown)],
+		["special", "E", "NOVA  %s" % ("READY" if s.nova_cooldown <= 0.0 else "%.1fs" % s.nova_cooldown)],
+	]
+	# Centred so the row ends flush with the right margin, and lifted clear of
+	# the arena border at Arena.BOUNDS.y -- a badge is taller than the line of
+	# text it replaced, and at 112 the border cut straight through it.
+	draw_hint_row(right - hints_width(abilities, 15) * 0.5, 100, abilities, 15)
 	var bar_y := SCREEN.y - 34.0
 	draw_rect(Rect2(MARGIN, bar_y, 520, 14), Color("3a2844"))
 	draw_rect(Rect2(MARGIN, bar_y, 520 * s.player_hp / s.player_max_hp, 14), Color("ff5f7a"))
@@ -282,8 +398,13 @@ func draw_shop() -> void:
 	for i in range(SHOP_CARDS):
 		draw_offer_card(i, s)
 	var reroll_cost: int = s.shop.reroll_cost()
-	draw_menu_button(reroll_rect(), "REROLL  %d  (R)" % reroll_cost, "reroll", Color("82b7ff") if s.materials >= reroll_cost else Color("54617d"))
-	draw_menu_button(go_rect(), "NEXT WAVE  (SPACE)", "go", Color("69f4d4"))
+	draw_menu_button(reroll_rect(), "REROLL  %d" % reroll_cost, "reroll", Color("82b7ff") if s.materials >= reroll_cost else Color("54617d"))
+	draw_menu_button(go_rect(), "NEXT WAVE", "go", Color("69f4d4"))
+	# Sits in the gap between the two buttons, which is empty on every layout
+	# because they are pinned to the outer edges of the offer row.
+	var hints: Array = [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"], ["alt", "R", "REROLL"]]
+	if not on_pad(): hints.append(["confirm", "SPACE", "NEXT WAVE"])
+	draw_hint_row(SCREEN.x * 0.5, BUTTON_TOP + 34.0, hints, 15)
 	draw_class_bonuses(s)
 	draw_weapon_slots(s)
 	draw_owned_items(s)
@@ -297,7 +418,7 @@ func draw_offer_card(index: int, s: GameSession) -> void:
 		text_centered(rect.get_center().x, rect.get_center().y, "SOLD", 22, Color("54617d"))
 		return
 	var affordable: bool = s.materials >= int(offer.price)
-	var hovered := game.menu_hover == "buy_%d" % index
+	var hovered := is_focused("buy_%d" % index)
 	var edge: Color = offer.color if affordable else Color("54617d")
 	draw_panel(rect, Color(0.12,0.16,0.28,0.95) if hovered else Color("151d35"), edge, 3.0 if hovered else 2.0)
 	text_at(rect.position + Vector2(20, 38), "WEAPON" if offer.kind == "weapon" else "ITEM", 13, Color("8ea4cb"))
@@ -366,7 +487,7 @@ func draw_weapon_slots(s: GameSession) -> void:
 			text_centered(rect.get_center().x, rect.get_center().y + 6, "EMPTY", 14, Color("46526e"))
 			continue
 		var weapon: Weapon = s.weapons[i]
-		var hovered := game.menu_hover == "sell_%d" % i
+		var hovered := is_focused("sell_%d" % i)
 		draw_panel(rect, Color(0.14,0.10,0.14,0.95) if hovered else Color("1a2440"), weapon.def().color, 2.0 if hovered else 1.5)
 		Icons.weapon(self, weapon.id, rect.position + Vector2(26, 31), 17.0, weapon.def().color)
 		text_at(rect.position + Vector2(50, 26), weapon.display_name(), 15, weapon.def().color)
@@ -394,7 +515,7 @@ func draw_stat_strip(s: GameSession) -> void:
 	var left := slot_rect(0).position.x
 	var y := SCREEN.y - 60.0
 	var parts: Array[String] = []
-	for stat in ["damage", "attack_speed", "crit_chance", "armor", "dodge", "speed", "lifesteal", "harvesting", "pickup_radius"]:
+	for stat in ["damage", "attack_speed", "crit_chance", "armor", "dodge", "speed", "lifesteal", "hp_regen", "harvesting", "pickup_radius"]:
 		if is_zero_approx(s.stats.get_stat(stat)): continue
 		parts.append("%s %s" % [Stats.LABELS[stat], s.stats.format(stat)])
 	text_at(Vector2(left, y), "HP %d/%d" % [s.player_hp, s.player_max_hp], 15, Color("f2d8e0"))
@@ -424,9 +545,13 @@ func draw_upgrades() -> void:
 	var choices: Array[Dictionary] = game.session.upgrades
 	var rarity_colors := {"COMMON": Color("b7c5d9"), "RARE": Color("82b7ff"), "LEGENDARY": Color("ffcf77")}
 	for i in range(choices.size()):
-		var rect := row_rect(i, choices.size(), CARD_SIZE, 400.0, CARD_GAP)
+		var rect := upgrade_rect(i)
 		var edge: Color = rarity_colors[choices[i].rarity]
-		draw_panel(rect, Color("202b4a"), edge, 3.0)
+		var focused := is_focused("upgrade_%d" % i)
+		# The focused card grows and brightens, the same way a menu button
+		# does, so a controller has something to steer.
+		if focused: rect = rect.grow(6.0)
+		draw_panel(rect, Color(0.14, 0.19, 0.34, 0.98) if focused else Color("202b4a"), edge, 5.0 if focused else 3.0)
 		text_at(rect.position + Vector2(24, 52), "%d" % (i + 1), 28, Color("ffe09b"))
 		text_at(rect.position + Vector2(24, 88), String(choices[i].rarity), 14, edge)
 		var granted: Array = choices[i].stats.keys()
@@ -434,7 +559,9 @@ func draw_upgrades() -> void:
 			Icons.stat(self, String(granted[0]), rect.position + Vector2(rect.size.x - 52, 58), 28.0, edge)
 		text_at(rect.position + Vector2(24, 124), String(choices[i].title), 21, Color("f1f5ff"))
 		draw_wrapped(rect.position + Vector2(24, 162), UpgradeCatalog.describe(choices[i]), 16, Color("a9bbde"), rect.size.x - 48.0)
-		text_at(rect.position + Vector2(24, 228), "Press %d" % (i + 1), 15, Color("ffe09b"))
+		text_at(rect.position + Vector2(24, 228), "TAKE" if focused else "Press %d" % (i + 1), 15, Color("ffe09b"))
+	var footer := upgrade_rect(0).end.y + 60.0
+	draw_hint_row(SCREEN.x * 0.5, footer, [["nav", "ARROWS", "PICK"], ["confirm", "ENTER", "TAKE"]])
 
 func draw_pause() -> void:
 	fill_screen(Color(0.02,0.03,0.08,0.80))
@@ -442,7 +569,8 @@ func draw_pause() -> void:
 	var rows := [["CONTINUE", "resume", Color("69f4d4")], ["SETTINGS", "settings", Color("82b7ff")], ["MAIN MENU", "menu", Color("ff718b")]]
 	for i in range(rows.size()):
 		draw_menu_button(pause_row_rect(i), rows[i][0], rows[i][1], rows[i][2])
-	text_centered(SCREEN.x * 0.5, pause_row_rect(rows.size() - 1).end.y + 56, "Arrows + Enter, or click  •  ESC continues", 16, Color("8ea4cb"))
+	draw_hint_row(SCREEN.x * 0.5, pause_row_rect(rows.size() - 1).end.y + 62,
+		[["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"], ["back", "ESC", "RESUME"]])
 
 func draw_settings(title: String, footer: String) -> void:
 	fill_screen(Color("0b1020"))
@@ -457,7 +585,9 @@ func draw_settings(title: String, footer: String) -> void:
 		if rows[i].has("level"): draw_slider_row(i, rows[i])
 		else: draw_toggle_row(settings_row_rect(i), rows[i])
 	draw_menu_button(settings_row_rect(rows.size()), "BACK", "back", Color("aabce1"))
-	text_centered(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 56, "Up/Down to pick  •  Left/Right to adjust  •  click a bar to set  •  %s" % footer, 16, Color("8ea4cb"))
+	draw_hint_row(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 62,
+		[["nav", "ARROWS", "PICK / ADJUST"], ["confirm", "ENTER", "TOGGLE"], ["back", "ESC", "BACK"]])
+	if not on_pad(): text_centered(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 110, "or click a bar to set it  •  %s" % footer, 15, Color("8ea4cb"))
 
 func draw_slider_row(index: int, row: Dictionary) -> void:
 	var rect := settings_row_rect(index)
@@ -489,7 +619,7 @@ func draw_game_over() -> void:
 	fill_screen(Color(0.03,0.01,0.07,0.82))
 	heading(SCREEN.x * 0.5, 200, "THE RIFT CONSUMES YOU", 38, Color("ff7590"))
 	draw_run_summary(250.0)
-	text_centered(SCREEN.x * 0.5, 960, "SPACE: run again   •   ESC: main menu", 21, Color("ffe09b"))
+	draw_hint_row(SCREEN.x * 0.5, 966, [["confirm", "SPACE", "RUN AGAIN"], ["back", "ESC", "MAIN MENU"]], 18)
 
 func draw_victory() -> void:
 	fill_screen(Color(0.02,0.05,0.06,0.86))
@@ -500,7 +630,7 @@ func draw_victory() -> void:
 	var next_danger: int = game.danger + 1
 	if next_danger < Balance.DANGER_LEVELS and game.profile.max_danger() >= next_danger:
 		text_centered(SCREEN.x * 0.5, 920, "DANGER %d UNLOCKED" % next_danger, 24, Color("ffcf77"))
-	text_centered(SCREEN.x * 0.5, 960, "SPACE: back to the title screen", 21, Color("ffe09b"))
+	draw_hint_row(SCREEN.x * 0.5, 966, [["confirm", "SPACE", "BACK TO TITLE"]], 18)
 
 # Shared by the death and victory screens: what the run actually was, since a
 # number on its own says nothing about the build that produced it.
@@ -541,7 +671,7 @@ func draw_run_summary(top: float) -> void:
 
 	text_at(Vector2(left, top + 494), "FINAL STATS", 15, Color("8ea4cb"))
 	var parts: Array[String] = []
-	for stat in ["max_hp", "damage", "attack_speed", "crit_chance", "armor", "dodge", "speed", "lifesteal", "attack_range", "harvesting", "luck"]:
+	for stat in ["max_hp", "hp_regen", "damage", "attack_speed", "crit_chance", "armor", "dodge", "speed", "lifesteal", "attack_range", "harvesting", "luck"]:
 		if is_zero_approx(s.stats.get_stat(stat)): continue
 		parts.append("%s %s" % [Stats.LABELS[stat], s.stats.format(stat)])
 	draw_wrapped(Vector2(left, top + 522), "   •   ".join(parts), 15, Color("c8d3ed"), panel.size.x - 96.0)

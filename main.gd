@@ -5,14 +5,19 @@ extends Node2D
 # settings_pause, game_over. Anything other than "playing" pauses the tree.
 
 # Screens whose rows can be clicked.
-const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause", "paused"]
+const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause",
+	"paused", "level_up"]
 # Settings rows that hold a value rather than a yes/no, so left and right
 # adjust them instead of activating them.
 const SLIDER_ROWS := ["sfx", "music"]
 const SLIDER_STEP := 0.1
 
-# Screens that are a vertical list, driven with the arrow keys and Enter.
-const MENU_STATES := ["title", "settings", "settings_pause", "paused"]
+# Screens that are a vertical list: up and down walk the rows, left and right
+# adjust whichever row is focused.
+const LIST_STATES := ["title", "settings", "settings_pause", "paused"]
+# Screens laid out across the display instead. Left and right walk the row, and
+# up and down step between the groups the layout is already drawn in.
+const ROW_STATES := ["shop", "level_up"]
 
 @onready var session: GameSession = $GameSession
 @onready var audio: AudioSfx = $AudioSfx
@@ -25,6 +30,13 @@ var last_reward := 0
 var rift_effects_enabled := true
 var profile := ProfileManager.new()
 var menu_hover := ""
+# Which device the player last used, so every on-screen prompt names the thing
+# actually in their hands instead of always naming a key.
+var input_device := "keyboard"
+# Stick menu navigation, latched so one flick moves one row while a held stick
+# scrolls at a steady rate.
+var stick_held := Vector2.ZERO
+var stick_repeat := 0.0
 # Which row the keyboard is on. Declared before `state` because the setter
 # below resets it, and member initialisers run in declaration order.
 var menu_index := 0
@@ -36,6 +48,10 @@ var state := "title":
 		# Landing on a new screen should always start at its first row rather
 		# than wherever the last screen happened to be pointing.
 		menu_index = 0
+		# The shop is the exception: it opens on NEXT WAVE. Enter and Space
+		# have always meant "leave the shop", and starting the cursor on an
+		# offer would turn that muscle memory into an accidental purchase.
+		if value == "shop": menu_index = maxi(0, menu_items().find("go"))
 
 func _ready() -> void:
 	# The actors drive themselves from _physics_process now, so pausing the
@@ -49,6 +65,9 @@ func _ready() -> void:
 	# tree unpausable, and enemies kept moving through the pause and level-up
 	# menus. The session has to opt back in explicitly.
 	session.process_mode = Node.PROCESS_MODE_PAUSABLE
+	# Hangs the stick and the d-pad off the movement actions the keys already
+	# use, so nothing downstream has to know a controller exists.
+	Gamepad.bind_movement()
 	profile.load_profile()
 	# Settings live in the profile now, so they survive a quit.
 	rift_effects_enabled = profile.setting("rift_effects")
@@ -79,6 +98,7 @@ func _process(delta: float) -> void:
 		session.tick(delta)
 	if state in MOUSE_STATES:
 		sync_hover(get_viewport().get_mouse_position())
+	poll_stick(delta)
 	ui.queue_redraw()
 
 # --- menu navigation ---------------------------------------------------------
@@ -90,12 +110,46 @@ func sync_hover(point: Vector2) -> void:
 	var hovered := menu_items().find(menu_hover)
 	if hovered >= 0: menu_index = hovered
 
+# The one definition of every list screen. The drawing, the hit-testing, the
+# keyboard cursor and the controller all read this -- menu_action_at once kept
+# its own copy of the settings rows, and adding a row sent every click to the
+# wrong setting.
 func menu_items() -> Array[String]:
+	var items: Array[String] = []
 	match state:
-		"title": return ["play", "armory", "settings", "quit"]
-		"settings", "settings_pause": return ["sfx", "music", "rift", "fullscreen", "back"]
-		"paused": return ["resume", "settings", "menu"]
-	return []
+		"title": items.assign(["play", "armory", "settings", "quit"])
+		"settings", "settings_pause": items.assign(["sfx", "music", "rift", "fullscreen", "back"])
+		"paused": items.assign(["resume", "settings", "menu"])
+		"level_up":
+			if session == null: return items
+			for i in range(session.upgrades.size()): items.append("upgrade_%d" % i)
+		"shop":
+			if session == null: return items
+			# In drawing order, which is what makes left and right feel like
+			# they move across the screen rather than through a list.
+			for i in range(GameUI.SHOP_CARDS): items.append("buy_%d" % i)
+			items.append("reroll")
+			items.append("go")
+			for i in range(session.weapons.size()): items.append("sell_%d" % i)
+	return items
+
+# The shop is drawn as three bands -- the offers, the two buttons, then the
+# weapon slots -- so up and down move between them rather than crawling the
+# whole list one card at a time.
+func menu_groups() -> Array:
+	if state != "shop": return []
+	var offers: Array[int] = []
+	var buttons: Array[int] = []
+	var slots: Array[int] = []
+	var items := menu_items()
+	for i in range(items.size()):
+		if items[i].begins_with("buy_"): offers.append(i)
+		elif items[i].begins_with("sell_"): slots.append(i)
+		else: buttons.append(i)
+	var groups: Array = []
+	for group in [offers, buttons, slots]:
+		if not group.is_empty(): groups.append(group)
+	return groups
 
 func move_menu(step: int) -> void:
 	var items := menu_items()
@@ -106,6 +160,41 @@ func move_menu(step: int) -> void:
 func focused_action() -> String:
 	var items := menu_items()
 	return items[menu_index] if menu_index >= 0 and menu_index < items.size() else ""
+
+# Up and down on a screen laid out across the display. Keeps the column, so
+# stepping from the third offer down to the slots lands near where the eye
+# already is rather than back at the start of the band.
+func jump_group(step: int) -> void:
+	var groups := menu_groups()
+	if groups.is_empty():
+		move_menu(step)
+		return
+	var here := 0
+	var column := 0
+	for g in range(groups.size()):
+		var found: int = (groups[g] as Array).find(menu_index)
+		if found >= 0:
+			here = g
+			column = found
+	var target: Array = groups[wrapi(here + step, 0, groups.size())]
+	audio.play("ui_move", -5.0)
+	menu_index = int(target[mini(column, target.size() - 1)])
+
+# One directional press, resolved against the way this screen is laid out.
+# `vertical` is the axis the press came from, not the axis it ends up moving on.
+func move_focus(step: int, vertical: bool) -> void:
+	if state in LIST_STATES:
+		if vertical:
+			move_menu(step)
+			return
+		# Sideways on a vertical list adjusts the focused row instead: a volume
+		# bar slides, and anything else simply activates.
+		var row := focused_action()
+		if row in SLIDER_ROWS: nudge_slider(row, SLIDER_STEP * float(step))
+		else: activate_menu()
+		return
+	if vertical: jump_group(step)
+	else: move_menu(step)
 
 func activate_menu() -> void:
 	audio.play("ui_click", -2.0)
@@ -161,6 +250,9 @@ func handle_menu_action(action: String) -> void:
 	if action.begins_with("danger_"):
 		set_danger(int(action.trim_prefix("danger_")))
 		return
+	if action.begins_with("upgrade_"):
+		choose_upgrade(int(action.trim_prefix("upgrade_")))
+		return
 	match action:
 		"play": start_run()
 		"armory": state = "armory"
@@ -174,6 +266,22 @@ func handle_menu_action(action: String) -> void:
 		"reroll": session.reroll_shop()
 		"go": leave_shop()
 		"quit": get_tree().quit()
+
+# Taking a level-up reward. A level can be gained during the shop, and dropping
+# straight back to "playing" from there would resume the wave with the shop
+# skipped, so where this lands depends on what the session was doing.
+func choose_upgrade(index: int) -> void:
+	if index < 0 or index >= session.upgrades.size(): return
+	session.choose_upgrade(index)
+	state = "shop" if session.round_phase == "shop" else "playing"
+
+func cycle_character(step: int) -> void:
+	selected_character = wrapi(selected_character + step, 0, CharacterCatalog.all().size())
+	audio.play("ui_move", -5.0)
+
+func cycle_gun(step: int) -> void:
+	selected_gun = wrapi(selected_gun + step, 0, GunCatalog.all().size())
+	audio.play("ui_move", -5.0)
 
 func leave_back() -> void:
 	if state == "settings" or state == "settings_pause": leave_settings()
@@ -209,6 +317,163 @@ func toggle_rift_effects() -> void:
 	session.rift_effects_enabled = rift_effects_enabled
 	profile.set_setting("rift_effects", rift_effects_enabled)
 
+# --- input -------------------------------------------------------------------
+
+# A key and a pad button collapse to the same verb here, so every screen below
+# is written once and answers to either. Adding a binding is a line in one of
+# these two tables rather than a second copy of the state machine.
+func key_verb(keycode: int) -> String:
+	match keycode:
+		KEY_UP: return "nav_up"
+		KEY_DOWN: return "nav_down"
+		KEY_LEFT: return "nav_left"
+		KEY_RIGHT: return "nav_right"
+		KEY_ENTER, KEY_KP_ENTER, KEY_SPACE: return "confirm"
+		KEY_ESCAPE: return "back"
+	return ""
+
+func pad_verb(button: int) -> String:
+	if button == Gamepad.CROSS: return "confirm"
+	if button == Gamepad.CIRCLE: return "back"
+	if button == Gamepad.OPTIONS: return "pause"
+	if button == Gamepad.SQUARE: return "alt"
+	if button == Gamepad.TRIANGLE: return "special"
+	if button == JOY_BUTTON_DPAD_UP: return "nav_up"
+	if button == JOY_BUTTON_DPAD_DOWN: return "nav_down"
+	if button == JOY_BUTTON_DPAD_LEFT: return "nav_left"
+	if button == JOY_BUTTON_DPAD_RIGHT: return "nav_right"
+	return ""
+
+# Which device the prompts should name. Tracked in _input rather than
+# _unhandled_input, because a click a menu consumes still says the player has a
+# hand on the mouse.
+func _input(event: InputEvent) -> void:
+	if event is InputEventJoypadButton:
+		input_device = "pad"
+	elif event is InputEventJoypadMotion:
+		# A resting stick emits motion constantly, so only a real push counts.
+		if absf((event as InputEventJoypadMotion).axis_value) >= Gamepad.MENU_DEADZONE:
+			input_device = "pad"
+	elif event is InputEventKey or event is InputEventMouse:
+		input_device = "keyboard"
+
+# The left stick walks a menu as well as the d-pad does. Latched, or a single
+# push would scroll the whole list inside one frame, and clamped to one axis at
+# a time, or a diagonal would move the cursor twice.
+func poll_stick(delta: float) -> void:
+	if not Gamepad.connected(): return
+	if not (state in LIST_STATES or state in ROW_STATES or state == "armory"):
+		stick_held = Vector2.ZERO
+		return
+	var axis := Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
+	var pushed := Vector2.ZERO
+	if absf(axis.x) >= Gamepad.MENU_DEADZONE and absf(axis.x) >= absf(axis.y): pushed.x = signf(axis.x)
+	elif absf(axis.y) >= Gamepad.MENU_DEADZONE: pushed.y = signf(axis.y)
+	if pushed == Vector2.ZERO:
+		stick_held = Vector2.ZERO
+		return
+	stick_repeat -= delta
+	if pushed != stick_held:
+		stick_held = pushed
+		stick_repeat = Gamepad.REPEAT_FIRST
+	elif stick_repeat > 0.0:
+		return
+	else:
+		stick_repeat = Gamepad.REPEAT_NEXT
+	input_device = "pad"
+	if pushed.y < 0.0: handle_verb("nav_up")
+	elif pushed.y > 0.0: handle_verb("nav_down")
+	elif pushed.x < 0.0: handle_verb("nav_left")
+	else: handle_verb("nav_right")
+
+# Everything the two devices share. Returns whether the verb was consumed, so a
+# screen's own letter shortcuts only ever see what is left over.
+func handle_verb(verb: String) -> bool:
+	if verb == "": return false
+	# Options on a pad is a dedicated pause, so it works from inside the fight
+	# without also being the button that backs out of menus.
+	if verb == "pause":
+		if state == "playing": state = "paused"
+		elif state == "paused": state = "playing"
+		return true
+	if state == "playing":
+		match verb:
+			"back":
+				state = "paused"
+				return true
+			"alt":
+				session.dash()
+				return true
+			"special":
+				session.rift_nova()
+				return true
+		return false
+	if state == "armory":
+		match verb:
+			"nav_left":
+				set_danger(danger - 1)
+				return true
+			"nav_right":
+				set_danger(danger + 1)
+				return true
+			"nav_up":
+				cycle_character(-1)
+				return true
+			"nav_down":
+				cycle_character(1)
+				return true
+			"alt":
+				cycle_gun(1)
+				return true
+			"confirm", "back":
+				state = "title"
+				return true
+		return false
+	if state in LIST_STATES or state in ROW_STATES:
+		match verb:
+			"nav_up":
+				move_focus(-1, true)
+				return true
+			"nav_down":
+				move_focus(1, true)
+				return true
+			"nav_left":
+				move_focus(-1, false)
+				return true
+			"nav_right":
+				move_focus(1, false)
+				return true
+			"confirm":
+				activate_menu()
+				return true
+	if verb == "alt" and state == "shop":
+		session.reroll_shop()
+		return true
+	if verb == "back":
+		match state:
+			"settings", "settings_pause":
+				leave_settings()
+				return true
+			"paused":
+				state = "playing"
+				return true
+			"game_over", "victory":
+				state = "title"
+				return true
+			# The shop and the level-up screen are each a decision the player
+			# has to actually make. There is nowhere to back out to.
+			"shop", "level_up":
+				return true
+	if verb == "confirm":
+		match state:
+			"game_over":
+				start_run()
+				return true
+			"victory":
+				state = "title"
+				return true
+	return false
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and state in MOUSE_STATES:
 		var clicked := ui.menu_action_at(event.position)
@@ -218,70 +483,47 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		handle_menu_action(clicked)
 		return
-	if not (event is InputEventKey and event.pressed and not event.echo): return
+	if event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed:
+		handle_verb(pad_verb((event as InputEventJoypadButton).button_index))
+		return
+	if not (event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo): return
+	var key := event as InputEventKey
 	# Fullscreen is global: it has to work from every screen, so it is handled
-	# before any per-state key mapping gets a look at the event. It is also
-	# reachable as a settings row, since F11 is an Fn-layer key on many
-	# laptops and never arrives.
-	if event.keycode == KEY_F11 or (event.keycode == KEY_ENTER and event.alt_pressed):
+	# before any per-state mapping gets a look at the event. It is also
+	# reachable as a settings row, since F11 is an Fn-layer key on many laptops
+	# and never arrives.
+	if key.keycode == KEY_F11 or (key.keycode == KEY_ENTER and key.alt_pressed):
 		toggle_fullscreen()
 		return
-	# Arrow-key navigation for every screen that is a vertical list.
-	if state in MENU_STATES:
-		match event.keycode:
-			KEY_UP:
-				move_menu(-1)
-				return
-			KEY_DOWN:
-				move_menu(1)
-				return
-			KEY_LEFT, KEY_RIGHT:
-				var step: float = SLIDER_STEP if event.keycode == KEY_RIGHT else -SLIDER_STEP
-				var row := focused_action()
-				if row in SLIDER_ROWS: nudge_slider(row, step)
-				else: activate_menu()
-				return
-			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
-				activate_menu()
-				return
+	# Space has always meant "leave the shop", whatever the cursor happens to be
+	# resting on, so it is answered before it can be read as a plain confirm.
+	if state == "shop" and key.keycode == KEY_SPACE:
+		leave_shop()
+		return
+	if handle_verb(key_verb(key.keycode)): return
+	# What is left is each screen's own letter shortcuts. Arrows, Enter, Space
+	# and Escape never reach here -- they are verbs, and work on a pad too.
 	if state == "title":
-		if event.keycode == KEY_P: handle_menu_action("play")
-		elif event.keycode == KEY_A: handle_menu_action("armory")
-		elif event.keycode == KEY_S: handle_menu_action("settings")
-		elif event.keycode == KEY_Q: handle_menu_action("quit")
+		if key.keycode == KEY_P: handle_menu_action("play")
+		elif key.keycode == KEY_A: handle_menu_action("armory")
+		elif key.keycode == KEY_S: handle_menu_action("settings")
+		elif key.keycode == KEY_Q: handle_menu_action("quit")
 	elif state == "armory":
-		if event.keycode >= KEY_1 and event.keycode <= KEY_3: selected_gun = event.keycode - KEY_1
-		elif event.keycode == KEY_C: selected_character = (selected_character + 1) % CharacterCatalog.all().size()
-		elif event.keycode == KEY_X: selected_character = (selected_character - 1 + CharacterCatalog.all().size()) % CharacterCatalog.all().size()
-		elif event.keycode == KEY_LEFT: set_danger(danger - 1)
-		elif event.keycode == KEY_RIGHT: set_danger(danger + 1)
-		elif event.keycode == KEY_ESCAPE or event.keycode == KEY_B: state = "title"
+		if key.keycode >= KEY_1 and key.keycode <= KEY_3: selected_gun = key.keycode - KEY_1
+		elif key.keycode == KEY_C: cycle_character(1)
+		elif key.keycode == KEY_X: cycle_character(-1)
+		elif key.keycode == KEY_B: state = "title"
 	elif state == "settings" or state == "settings_pause":
-		if event.keycode == KEY_V: toggle_rift_effects()
-		elif event.keycode == KEY_F: toggle_fullscreen()
-		elif event.keycode == KEY_ESCAPE: leave_settings()
+		if key.keycode == KEY_V: toggle_rift_effects()
+		elif key.keycode == KEY_F: toggle_fullscreen()
 	elif state == "paused":
-		if event.keycode == KEY_ESCAPE: state = "playing"
-		elif event.keycode == KEY_S: open_settings()
-		elif event.keycode == KEY_Q: state = "title"
+		if key.keycode == KEY_S: open_settings()
+		elif key.keycode == KEY_Q: state = "title"
 	elif state == "shop":
-		if event.keycode >= KEY_1 and event.keycode <= KEY_4: session.buy(event.keycode - KEY_1)
-		elif event.keycode == KEY_R: session.reroll_shop()
-		elif event.keycode == KEY_SPACE or event.keycode == KEY_ENTER: leave_shop()
+		if key.keycode >= KEY_1 and key.keycode <= KEY_4: session.buy(key.keycode - KEY_1)
+		elif key.keycode == KEY_R: session.reroll_shop()
 	elif state == "level_up":
-		if event.keycode >= KEY_1 and event.keycode <= KEY_4:
-			var choice: int = event.keycode - KEY_1
-			if choice < session.upgrades.size():
-				session.choose_upgrade(choice)
-				# A level can be gained during the shop, and returning to
-				# "playing" there would resume the wave with the shop skipped.
-				state = "shop" if session.round_phase == "shop" else "playing"
-	elif state == "game_over":
-		if event.keycode == KEY_SPACE: start_run()
-		elif event.keycode == KEY_ESCAPE: state = "title"
-	elif state == "victory":
-		if event.keycode == KEY_SPACE or event.keycode == KEY_ENTER or event.keycode == KEY_ESCAPE: state = "title"
+		if key.keycode >= KEY_1 and key.keycode <= KEY_4: choose_upgrade(key.keycode - KEY_1)
 	elif state == "playing":
-		if event.keycode == KEY_ESCAPE: state = "paused"
-		elif event.keycode == KEY_Q: session.dash()
-		elif event.keycode == KEY_E: session.rift_nova()
+		if key.keycode == KEY_Q: session.dash()
+		elif key.keycode == KEY_E: session.rift_nova()

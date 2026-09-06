@@ -36,6 +36,8 @@ static func all() -> Array[Dictionary]:
 			"stats":{"harvesting":4.0}, "color":Color("ffd166")},
 		{"id":"repair_field", "name":"REPAIR FIELD", "price":21, "min_round":4,
 			"stats":{"hp_regen":1.2}, "color":Color("69f4d4")},
+		{"id":"vital_spring", "name":"VITAL SPRING", "price":27, "min_round":3,
+			"stats":{"hp_regen":1.8, "speed":-4.0}, "color":Color("8cffd1")},
 		{"id":"lucky_coin", "name":"LUCKY COIN", "price":15, "min_round":4,
 			"stats":{"luck":12.0}, "color":Color("ffe09b")},
 		{"id":"war_drum", "name":"WAR DRUM", "price":34, "min_round":5,
@@ -62,6 +64,9 @@ static func all() -> Array[Dictionary]:
 			"color":Color("ff6d8d")},
 		{"id":"quartermaster", "name":"QUARTERMASTER", "price":25, "min_round":4,
 			"stats":{}, "per":{"stat":"max_hp", "amount":7.0, "of":"items"},
+			"color":Color("69f4d4")},
+		{"id":"field_medic", "name":"FIELD MEDIC", "price":29, "min_round":4,
+			"stats":{}, "per":{"stat":"hp_regen", "amount":0.45, "of":"items"},
 			"color":Color("69f4d4")},
 	]
 

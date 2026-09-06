@@ -182,6 +182,7 @@ func tick(delta: float) -> void:
 # actually gets built. begin_round is only reached when the player leaves it.
 func finish_wave() -> void:
 	round_phase = "shop"
+	heal_between_waves()
 	var harvest := int(stats.get_stat("harvesting"))
 	if harvest > 0: materials += harvest
 	shop.allowed_kinds = allowed_kinds
@@ -200,6 +201,17 @@ func begin_round() -> void:
 		var top := Vector2(Arena.BOUNDS.get_center().x, Arena.BOUNDS.position.y + 70.0)
 		spawn_enemy(EnemyCatalog.boss(round_number), top, true)
 		audio.play("boom", 3.0)
+
+# Surviving a wave pays back part of the bar. Once per wave and capped at max
+# HP, so unlike the per-kill heal it cannot be farmed -- and it is what stops a
+# run being a one-way ratchet where wave 6 is fought on wave 1's leftovers.
+# The missing-health share means a wave survived at a sliver recovers more than
+# a wave walked through untouched, without ever exceeding the cap.
+func heal_between_waves() -> void:
+	if not is_instance_valid(player) or not player.alive: return
+	var flat := player.max_hp * Balance.WAVE_CLEAR_HEAL
+	var missing := maxf(0.0, player.max_hp - player.hp) * Balance.WAVE_CLEAR_HEAL_MISSING
+	player.heal(flat + missing)
 
 # --- shop transactions -------------------------------------------------------
 

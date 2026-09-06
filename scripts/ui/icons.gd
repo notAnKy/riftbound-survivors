@@ -33,6 +33,19 @@ const STAT_ICON := {
 	"dodge": "ghost_step", "hp_regen": "repair_field",
 }
 
+# Items that borrow another item's glyph, for the same reason the stat grants
+# do: the art already says the right thing, and a second near-identical medical
+# icon would only make the shop harder to read at a glance.
+const ITEM_ALIAS := {
+	"vital_spring": "repair_field",
+	"field_medic": "ration_pack",
+}
+
+# The one place an item id turns into a path, so an alias cannot be honoured in
+# the drawing and missed by anything else that asks whether the art exists.
+static func item_path(id: String) -> String:
+	return ITEM_PATH % String(ITEM_ALIAS.get(id, id))
+
 static func stat(canvas: CanvasItem, stat_name: String, at: Vector2, size: float, color: Color) -> void:
 	item(canvas, String(STAT_ICON.get(stat_name, "focus_lens")), at, size, color)
 
@@ -40,7 +53,7 @@ static func weapon(canvas: CanvasItem, id: String, at: Vector2, size: float, col
 	draw_icon(canvas, WEAPON_PATH % id, at, size, color)
 
 static func item(canvas: CanvasItem, id: String, at: Vector2, size: float, color: Color) -> void:
-	draw_icon(canvas, ITEM_PATH % id, at, size, color)
+	draw_icon(canvas, item_path(id), at, size, color)
 
 # `at` is the centre and `size` the half-extent, so a call site can swap an
 # icon for another without touching its layout.
