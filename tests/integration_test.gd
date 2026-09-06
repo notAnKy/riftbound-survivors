@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 233
+const EXPECTED_CHECKS := 247
 var checks := 0
 
 func _initialize() -> void:
@@ -47,6 +47,7 @@ func bootstrap() -> void:
 	await test_wave_clear_opens_shop()
 	await test_shop_buying()
 	await test_weapon_combining()
+	await test_combine_in_the_shop()
 	await test_weapon_rack_limit()
 	await test_multi_weapon_output()
 	await test_materials_are_currency_and_xp()
@@ -304,17 +305,72 @@ func test_shop_buying() -> void:
 	check("rerolling refills the board", s.shop.offers.size() == Shop.SLOTS and not s.shop.offers[0].is_empty())
 	game.free()
 
+# Merging is a decision the player makes, not something that happens to them:
+# two barrels firing now against one weapon that hits far harder is the whole
+# point of holding a duplicate.
 func test_weapon_combining() -> void:
 	var game = await fresh_game()
 	var s = game.session
 	var rack: Array[Weapon] = [Weapon.new("smg", 1)]
 	s.weapons = rack
+	check("a lone weapon has nothing to merge with", not s.can_combine(0))
 	s.add_weapon("smg", 1)
-	check("two of a kind stay separate (%d)" % s.weapons.size(), s.weapons.size() == 2)
-	s.add_weapon("smg", 1)
-	check("three of a kind merge into one (%d)" % s.weapons.size(), s.weapons.size() == 1)
+	check("two of a kind stay separate until asked (%d)" % s.weapons.size(), s.weapons.size() == 2)
+	check("and both offer the merge", s.can_combine(0) and s.can_combine(1))
+	check("merging consumes both (%d left)" % s.weapons.size(), s.combine_weapon(0) and s.weapons.size() == 1)
 	check("the merged weapon is a tier higher (tier %d)" % s.weapons[0].tier, s.weapons[0].tier == 2)
 	check("the merged weapon hits harder (%.0f vs %.0f)" % [WeaponCatalog.damage_at("smg", 2), WeaponCatalog.damage_at("smg", 1)], WeaponCatalog.damage_at("smg", 2) > WeaponCatalog.damage_at("smg", 1))
+
+	# a pair has to match on tier as well as on weapon
+	s.add_weapon("smg", 1)
+	check("a tier I and a tier II are not a pair", not s.can_combine(0) and not s.can_combine(1))
+
+	# and there is nowhere above the top tier to merge into
+	var maxed: Array[Weapon] = [Weapon.new("smg", WeaponCatalog.MAX_TIER), Weapon.new("smg", WeaponCatalog.MAX_TIER)]
+	s.weapons = maxed
+	check("a maxed pair has nowhere to go", not s.can_combine(0) and not s.combine_weapon(0))
+
+	# the player draws the rack from the same array, so it must be mutated in
+	# place -- a fresh array would leave the character orbiting the old weapons
+	var shared: Array[Weapon] = [Weapon.new("wand", 1), Weapon.new("wand", 1)]
+	s.weapons = shared
+	s.player.weapons = s.weapons
+	s.combine_weapon(0)
+	check("the player's rack follows the merge (%d)" % s.player.weapons.size(), s.player.weapons.size() == 1)
+	game.free()
+
+# The same thing, driven through the shop the way a player reaches it.
+func test_combine_in_the_shop() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	var rack: Array[Weapon] = [Weapon.new("smg", 1), Weapon.new("smg", 1), Weapon.new("rifle", 1)]
+	s.weapons = rack
+	s.player.weapons = s.weapons
+	s.finish_wave()
+	game.state = "shop"
+
+	check("a duplicate hit-tests to combine (%s)" % game.ui.menu_action_at(game.ui.slot_combine_rect(0).get_center()),
+		game.ui.menu_action_at(game.ui.slot_combine_rect(0).get_center()) == "combine_0")
+	check("the rest of the slot still sells (%s)" % game.ui.menu_action_at(game.ui.slot_rect(0).position + Vector2(30, 30)),
+		game.ui.menu_action_at(game.ui.slot_rect(0).position + Vector2(30, 30)) == "sell_0")
+	check("a lone weapon offers no chip (%s)" % game.ui.menu_action_at(game.ui.slot_combine_rect(2).get_center()),
+		game.ui.menu_action_at(game.ui.slot_combine_rect(2).get_center()) == "sell_2")
+
+	# reachable without a mouse, and in the band the slots are drawn in
+	var rows: Array[String] = game.menu_items()
+	check("combining is in the navigable list (%s)" % str(rows.slice(rows.find("sell_0"))),
+		rows.has("combine_0") and rows.has("sell_0") and not rows.has("combine_2"))
+	check("and the shop is still three bands (%d)" % game.menu_groups().size(), game.menu_groups().size() == 3)
+
+	# Park the cursor on the last row first: merging removes three rows at once
+	# (both sells and both chips, less the one the merged weapon adds back), so
+	# without a clamp the cursor is left pointing past the end of the list.
+	game.menu_index = game.menu_items().size() - 1
+	click(game, game.ui.slot_combine_rect(0).get_center())
+	check("clicking combine merges the pair (%d weapons)" % s.weapons.size(), s.weapons.size() == 2)
+	check("into one a tier up (%s)" % s.weapons[1].display_name(), s.weapons[1].tier == 2)
+	check("and the cursor stays inside the shortened list (%d of %d)" % [game.menu_index, game.menu_items().size()],
+		game.menu_index < game.menu_items().size())
 	game.free()
 
 func test_weapon_rack_limit() -> void:
@@ -330,13 +386,13 @@ func test_weapon_rack_limit() -> void:
 		"color":Color.WHITE, "price":1}
 	s.shop.offers[0] = lance
 	check("a full rack refuses a seventh weapon", not s.buy(0))
-	# but a third copy of one already held merges, so it is allowed through
+	# A full rack is a block, but not a dead end: merging a pair frees the slot
+	# the purchase needs, and that is the whole reason the chip is in the shop.
 	s.weapons[1] = Weapon.new("pistol", 1)
-	var extra: Dictionary = {"kind":"weapon", "id":"pistol", "tier":1, "name":"x", "text":"",
-		"color":Color.WHITE, "price":1}
-	s.shop.offers[1] = extra
-	check("a full rack still accepts a merge", s.buy(1))
-	check("and the merge shrank the rack (%d)" % s.weapons.size(), s.weapons.size() < GameSession.MAX_WEAPONS)
+	s.weapons[2] = Weapon.new("pistol", 1)
+	check("two of a kind in a full rack can merge", s.combine_weapon(1))
+	check("which frees a slot (%d)" % s.weapons.size(), s.weapons.size() < GameSession.MAX_WEAPONS)
+	check("and the purchase then goes through", s.buy(0))
 	game.free()
 
 func shots_fired_over(s, frames: int) -> int:

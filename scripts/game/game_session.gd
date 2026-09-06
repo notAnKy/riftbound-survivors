@@ -225,8 +225,10 @@ func buy(index: int) -> bool:
 	var offer: Dictionary = shop.offers[index]
 	if offer.kind == "weapon":
 		if not WeaponCatalog.allows(String(offer.id), allowed_kinds): return false
-		if weapons.size() >= weapon_slots and not would_combine(String(offer.id), int(offer.tier)):
-			return false
+		# A full rack is a hard block now that merging is deliberate. It is not a
+		# dead end: two of a kind can be combined right there in the shop, which
+		# frees the slot the purchase needs.
+		if weapons.size() >= weapon_slots: return false
 	materials -= int(offer.price)
 	shop.take(index)
 	if offer.kind == "weapon": add_weapon(String(offer.id), int(offer.tier))
@@ -251,34 +253,48 @@ func sell_weapon(index: int) -> bool:
 	audio.play("sell")
 	return true
 
-# A third copy of the same weapon at the same tier merges upward, so a full
-# rack is not a hard block on buying one more.
-func would_combine(id: String, tier: int) -> bool:
-	if tier >= WeaponCatalog.MAX_TIER: return false
-	var same := 0
-	for weapon in weapons:
-		if weapon.id == id and weapon.tier == tier: same += 1
-	return same >= 2
-
 func add_weapon(id: String, tier: int) -> void:
 	weapons.append(Weapon.new(id, tier))
-	combine_weapons()
 	rebuild_stats()
 
-func combine_weapons() -> void:
-	var merged := true
-	while merged:
-		merged = false
-		for weapon in weapons:
-			if weapon.tier >= WeaponCatalog.MAX_TIER: continue
-			var same := weapons.filter(func(other: Weapon) -> bool:
-				return other.id == weapon.id and other.tier == weapon.tier)
-			if same.size() < 3: continue
-			for i in range(3): weapons.erase(same[i])
-			weapons.append(Weapon.new(weapon.id, weapon.tier + 1))
-			audio.play("merge", 2.0)
-			merged = true
-			break
+# Two of the same weapon at the same tier merge into one a tier higher.
+#
+# This is a shop action the player takes, not something that happens to them.
+# It used to fire on its own at three of a kind, which meant the interesting
+# decision -- a second barrel firing now, or one weapon that hits far harder --
+# was made for you the moment you bought the third. An automatic rule and a
+# button would also be two sources of truth for the same merge, and the
+# automatic one would always win before the button could be pressed.
+func combine_partner(index: int) -> int:
+	if index < 0 or index >= weapons.size(): return -1
+	var weapon: Weapon = weapons[index]
+	if weapon.tier >= WeaponCatalog.MAX_TIER: return -1
+	for i in range(weapons.size()):
+		if i == index: continue
+		if weapons[i].id == weapon.id and weapons[i].tier == weapon.tier: return i
+	return -1
+
+func can_combine(index: int) -> bool:
+	return combine_partner(index) >= 0
+
+func combine_weapon(index: int) -> bool:
+	var partner := combine_partner(index)
+	if partner < 0: return false
+	var weapon: Weapon = weapons[index]
+	var id := weapon.id
+	var tier := weapon.tier
+	# The rack is mutated in place, never reassigned: the player node holds the
+	# same array to draw the weapons orbiting it, and a fresh one would leave it
+	# drawing the old rack. Higher index first, or the second erase shifts under
+	# itself and takes the wrong weapon.
+	weapons.remove_at(maxi(index, partner))
+	weapons.remove_at(mini(index, partner))
+	weapons.append(Weapon.new(id, tier + 1))
+	# Weapon count feeds the class bonuses and every per-weapon item, and it just
+	# went down by one, so the whole sheet has to be recomputed.
+	rebuild_stats()
+	audio.play("merge", 2.0)
+	return true
 
 func add_item(id: String) -> void:
 	items.append(id)

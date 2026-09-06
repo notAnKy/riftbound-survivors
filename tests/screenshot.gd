@@ -104,6 +104,7 @@ func capture() -> void:
 	# The shop, with a purse worth spending and a couple of things owned.
 	s.materials = 46
 	s.add_weapon("smg", 1)
+	s.add_weapon("smg", 1)
 	s.add_weapon("rifle", 2)
 	s.add_item("focus_lens")
 	s.add_item("scrap_plate")

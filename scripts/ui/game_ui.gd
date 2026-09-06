@@ -111,6 +111,12 @@ func slot_count() -> int:
 func slot_rect(index: int) -> Rect2:
 	return row_rect(index, slot_count(), SLOT_SIZE, SLOT_TOP, SLOT_GAP)
 
+# The right end of a weapon slot. The rest of the slot still sells, so the two
+# actions never share a pixel.
+func slot_combine_rect(index: int) -> Rect2:
+	var rect := slot_rect(index)
+	return Rect2(rect.end.x - 86.0, rect.position.y + 16.0, 78.0, 30.0)
+
 func reroll_rect() -> Rect2:
 	return Rect2(Vector2(card_rect(0).position.x, BUTTON_TOP), BUTTON_SIZE)
 
@@ -185,6 +191,9 @@ func menu_action_at(point: Vector2) -> String:
 		for i in range(SHOP_CARDS):
 			if card_rect(i).has_point(point): return "buy_%d" % i
 		for i in range(game.session.weapons.size()):
+			# Tested first: the chip sits inside the slot, and the slot sells.
+			if game.session.can_combine(i) and slot_combine_rect(i).has_point(point):
+				return "combine_%d" % i
 			if slot_rect(i).has_point(point): return "sell_%d" % i
 		if reroll_rect().has_point(point): return "reroll"
 		if go_rect().has_point(point): return "go"
@@ -488,7 +497,7 @@ func scaled_bonus(spec: Dictionary, steps: int) -> String:
 	return ", ".join(parts)
 
 func draw_weapon_slots(s: GameSession) -> void:
-	text_at(Vector2(slot_rect(0).position.x, SLOT_TOP - 14), "WEAPONS  %d / %d  —  click to sell" % [s.weapons.size(), slot_count()], 15, Color("8ea4cb"))
+	text_at(Vector2(slot_rect(0).position.x, SLOT_TOP - 14), "WEAPONS  %d / %d  —  click to sell, or COMBINE two of a kind" % [s.weapons.size(), slot_count()], 15, Color("8ea4cb"))
 	for i in range(slot_count()):
 		var rect := slot_rect(i)
 		if i >= s.weapons.size():
@@ -496,12 +505,29 @@ func draw_weapon_slots(s: GameSession) -> void:
 			text_centered(rect.get_center().x, rect.get_center().y + 6, "EMPTY", 14, Color("46526e"))
 			continue
 		var weapon: Weapon = s.weapons[i]
-		var hovered := is_focused("sell_%d" % i)
-		draw_panel(rect, Color(0.14,0.10,0.14,0.95) if hovered else Color("1a2440"), weapon.def().color, 2.0 if hovered else 1.5)
+		var selling := is_focused("sell_%d" % i)
+		var merging := is_focused("combine_%d" % i)
+		draw_panel(rect, Color(0.14,0.10,0.14,0.95) if selling else Color("1a2440"), weapon.def().color, 2.0 if selling or merging else 1.5)
 		Icons.weapon(self, weapon.id, rect.position + Vector2(26, 31), 17.0, weapon.def().color)
 		text_at(rect.position + Vector2(50, 26), weapon.display_name(), 15, weapon.def().color)
-		var note := "sell +%d" % weapon.sell_value() if hovered and s.weapons.size() > 1 else "%.0f dmg" % WeaponCatalog.damage_at(weapon.id, weapon.tier)
-		text_at(rect.position + Vector2(50, 50), note, 13, Color("ff9aa8") if hovered else Color("9fb3d9"))
+		# The line under the name says what the focused action would actually do.
+		var note := "%.0f dmg" % WeaponCatalog.damage_at(weapon.id, weapon.tier)
+		var tint := Color("9fb3d9")
+		if merging:
+			note = "combine → %s" % WeaponCatalog.tier_label(weapon.tier + 1)
+			tint = Color("ffe09b")
+		elif selling and s.weapons.size() > 1:
+			note = "sell +%d" % weapon.sell_value()
+			tint = Color("ff9aa8")
+		text_at(rect.position + Vector2(50, 50), note, 13, tint)
+		if s.can_combine(i): draw_combine_chip(slot_combine_rect(i), merging)
+
+# Drawn on any weapon that has a twin in the rack rather than only on hover:
+# a duplicate is an opportunity, and it should be visible before you go looking.
+func draw_combine_chip(rect: Rect2, focused: bool) -> void:
+	var accent := Color("ffe09b")
+	draw_panel(rect, Color(accent.r, accent.g, accent.b, 0.22) if focused else Color(0.10, 0.14, 0.25, 0.95), accent, 2.0 if focused else 1.0)
+	text_centered(rect.get_center().x, rect.get_center().y + 5.0, "COMBINE", 12, accent)
 
 func draw_owned_items(s: GameSession) -> void:
 	var top := SLOT_TOP + SLOT_SIZE.y + 40.0

@@ -175,7 +175,9 @@ func menu_items() -> Array[String]:
 			for i in range(GameUI.SHOP_CARDS): items.append("buy_%d" % i)
 			items.append("reroll")
 			items.append("go")
-			for i in range(session.weapons.size()): items.append("sell_%d" % i)
+			for i in range(session.weapons.size()):
+				items.append("sell_%d" % i)
+				if session.can_combine(i): items.append("combine_%d" % i)
 	return items
 
 # The shop is drawn as three bands -- the offers, the two buttons, then the
@@ -189,7 +191,7 @@ func menu_groups() -> Array:
 	var items := menu_items()
 	for i in range(items.size()):
 		if items[i].begins_with("buy_"): offers.append(i)
-		elif items[i].begins_with("sell_"): slots.append(i)
+		elif items[i].begins_with("sell_") or items[i].begins_with("combine_"): slots.append(i)
 		else: buttons.append(i)
 	var groups: Array = []
 	for group in [offers, buttons, slots]:
@@ -291,6 +293,11 @@ func handle_menu_action(action: String) -> void:
 		return
 	if action.begins_with("sell_"):
 		session.sell_weapon(int(action.trim_prefix("sell_")))
+		clamp_focus()
+		return
+	if action.begins_with("combine_"):
+		session.combine_weapon(int(action.trim_prefix("combine_")))
+		clamp_focus()
 		return
 	if action.begins_with("danger_"):
 		set_danger(int(action.trim_prefix("danger_")))
@@ -322,6 +329,11 @@ func choose_upgrade(index: int) -> void:
 	if index < 0 or index >= session.upgrades.size(): return
 	session.choose_upgrade(index)
 	state = "shop" if session.round_phase == "shop" else "playing"
+
+# Selling or merging shortens the rack, and with it the shop's row list, so the
+# cursor has to be brought back inside the list it is pointing into.
+func clamp_focus() -> void:
+	menu_index = clampi(menu_index, 0, maxi(0, menu_items().size() - 1))
 
 func cycle_character(step: int) -> void:
 	selected_character = wrapi(selected_character + step, 0, CharacterCatalog.all().size())
