@@ -50,7 +50,15 @@ func _on_body_entered(body: Node2D) -> void:
 		if pierce > 0: pierce -= 1
 		else: queue_free()
 
+# A round dot reads as a pellet. A white-hot core with a coloured tail behind
+# it reads as a shot, and the tail also shows which way the thing is going.
 func _draw() -> void:
-	draw_circle(Vector2.ZERO, radius + 2.0, Color(color.r, color.g, color.b, 0.25))
-	draw_circle(Vector2.ZERO, radius, color)
-	if crit: draw_arc(Vector2.ZERO, radius + 3.0, 0.0, TAU, 12, Color(1, 1, 1, 0.8), 1.5)
+	var heading := velocity.normalized()
+	if heading == Vector2.ZERO: heading = Vector2.RIGHT
+	var tail := -heading * radius * (7.0 if crit else 5.5)
+	draw_line(tail, Vector2.ZERO, Color(color.r, color.g, color.b, 0.20), radius * 2.6)
+	draw_line(tail * 0.55, Vector2.ZERO, Color(color.r, color.g, color.b, 0.60), radius * 1.5)
+	draw_circle(Vector2.ZERO, radius * 1.45, Color(color.r, color.g, color.b, 0.55))
+	draw_circle(Vector2.ZERO, radius * 0.7, Color(1.0, 1.0, 1.0, 0.95))
+	if crit:
+		draw_arc(Vector2.ZERO, radius * 2.1, 0.0, TAU, 14, Color(1.0, 0.92, 0.5, 0.85), 1.6)

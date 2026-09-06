@@ -29,10 +29,25 @@ const MENU_STEP := 84.0
 
 var game: GameController
 var font: Font
+var display: Font
 
 func _ready() -> void:
 	game = get_parent() as GameController
-	font = ThemeDB.fallback_font
+	# Rajdhani for text, Orbitron for headings. The engine fallback font is
+	# what made every screen read as a prototype.
+	font = load("res://assets/fonts/Rajdhani-SemiBold.ttf") as Font
+	if font == null: font = ThemeDB.fallback_font
+	display = build_display_font()
+
+func build_display_font() -> Font:
+	var orbitron := load("res://assets/fonts/Orbitron.ttf") as FontFile
+	if orbitron == null: return font
+	# Orbitron ships as a variable font; without this it renders at its
+	# lightest weight, which is far too thin for a title.
+	var heavy := FontVariation.new()
+	heavy.base_font = orbitron
+	heavy.variation_opentype = {"wght": 800}
+	return heavy
 
 func _draw() -> void:
 	if game == null: return
@@ -60,6 +75,15 @@ func text_width(text: String, size: int) -> float:
 
 func text_centered(centre_x: float, y: float, text: String, size: int, color: Color) -> void:
 	text_at(Vector2(centre_x - text_width(text, size) * 0.5, y), text, size, color)
+
+# Headings go through the display face; body text stays on Rajdhani.
+func heading(centre_x: float, y: float, text: String, size: int, color: Color) -> void:
+	var width := display.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	draw_string(display, Vector2(centre_x - width * 0.5, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+
+func heading_right(right_x: float, y: float, text: String, size: int, color: Color) -> void:
+	var width := display.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	draw_string(display, Vector2(right_x - width, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
 
 func text_right(right_x: float, y: float, text: String, size: int, color: Color) -> void:
 	text_at(Vector2(right_x - text_width(text, size), y), text, size, color)
@@ -142,8 +166,8 @@ func fill_screen(color: Color) -> void:
 
 func draw_title() -> void:
 	draw_menu_background()
-	text_centered(SCREEN.x * 0.5, 300, "RIFTBOUND", 76, Color("e8efff"))
-	text_centered(SCREEN.x * 0.5, 372, "SURVIVORS", 76, Color("ffcf77"))
+	heading(SCREEN.x * 0.5, 300, "RIFTBOUND", 68, Color("e8efff"))
+	heading(SCREEN.x * 0.5, 378, "SURVIVORS", 68, Color("ffcf77"))
 	text_centered(SCREEN.x * 0.5, 424, "An arcade survival run", 20, Color("aabce1"))
 	var buttons := [["PLAY", "play", Color("69f4d4")], ["ARMORY", "armory", Color("bf8cff")], ["SETTINGS", "settings", Color("82b7ff")], ["QUIT GAME", "quit", Color("ff718b")]]
 	for i in range(buttons.size()):
@@ -154,7 +178,7 @@ func draw_title() -> void:
 func draw_armory() -> void:
 	draw_menu_background()
 	draw_menu_button(armory_back_rect(), "BACK", "back", Color("aabce1"))
-	text_centered(SCREEN.x * 0.5, 150, "ARMORY", 48, Color("e8efff"))
+	heading(SCREEN.x * 0.5, 150, "ARMORY", 44, Color("e8efff"))
 	text_centered(SCREEN.x * 0.5, 196, "Choose a starting weapon and survivor", 18, Color("aabce1"))
 	var guns := GunCatalog.all()
 	for i in range(guns.size()):
@@ -215,7 +239,7 @@ func draw_hud() -> void:
 		text_at(Vector2(x + 30, 84), label, 14, weapon.def().color)
 		x += width + 9.0
 	var round_status := "CLEAR HOSTILES" if s.round_phase == "cleanup" else ("SHOP" if s.round_phase == "shop" else "FIGHT")
-	text_right(right, 50, "WAVE %d / %d   %02d" % [s.round_number, Balance.FINAL_WAVE, int(ceil(s.round_time_left))], 28, Color("ffd166"))
+	heading_right(right, 50, "WAVE %d / %d  %02d" % [s.round_number, Balance.FINAL_WAVE, int(ceil(s.round_time_left))], 28, Color("ffd166"))
 	text_right(right, 80, "%s  •  KILLS %d" % [round_status, s.kills], 16, Color("ffcf77") if s.round_phase != "combat" else Color("b6c6e8"))
 	text_right(right, 106, "Q DASH %s    E NOVA %s" % ["READY" if s.dash_cooldown <= 0.0 else "%.1fs" % s.dash_cooldown, "READY" if s.nova_cooldown <= 0.0 else "%.1fs" % s.nova_cooldown], 15, Color("b6c6e8"))
 	var bar_y := SCREEN.y - 34.0
@@ -233,7 +257,7 @@ func draw_hud() -> void:
 func draw_shop() -> void:
 	var s := game.session
 	fill_screen(Color(0.02,0.03,0.08,0.94))
-	text_centered(SCREEN.x * 0.5, 120, "WAVE %d CLEARED" % s.round_number, 36, Color("69f4d4"))
+	heading(SCREEN.x * 0.5, 120, "WAVE %d CLEARED" % s.round_number, 34, Color("69f4d4"))
 	text_centered(SCREEN.x * 0.5, 158, "Spend materials, then head back in", 18, Color("aabce1"))
 	text_at(Vector2(MARGIN, 130), "MATERIALS  %d" % s.materials, 26, Color("8cffd1"))
 	for i in range(SHOP_CARDS):
@@ -330,7 +354,7 @@ func draw_wrapped(at: Vector2, text: String, size: int, color: Color, width: flo
 
 func draw_upgrades() -> void:
 	fill_screen(Color(0.02,0.03,0.08,0.82))
-	text_centered(SCREEN.x * 0.5, 300, "RIFT EVOLUTION", 42, Color("ffe09b"))
+	heading(SCREEN.x * 0.5, 300, "RIFT EVOLUTION", 38, Color("ffe09b"))
 	text_centered(SCREEN.x * 0.5, 340, "Choose one upgrade", 20, Color("c8d3ed"))
 	var choices: Array[Dictionary] = game.session.upgrades
 	var rarity_colors := {"COMMON": Color("b7c5d9"), "RARE": Color("82b7ff"), "LEGENDARY": Color("ffcf77")}
@@ -340,13 +364,16 @@ func draw_upgrades() -> void:
 		draw_panel(rect, Color("202b4a"), edge, 3.0)
 		text_at(rect.position + Vector2(24, 52), "%d" % (i + 1), 28, Color("ffe09b"))
 		text_at(rect.position + Vector2(24, 88), String(choices[i].rarity), 14, edge)
+		var granted: Array = choices[i].stats.keys()
+		if not granted.is_empty():
+			Icons.stat(self, String(granted[0]), rect.position + Vector2(rect.size.x - 52, 58), 28.0, edge)
 		text_at(rect.position + Vector2(24, 124), String(choices[i].title), 21, Color("f1f5ff"))
 		draw_wrapped(rect.position + Vector2(24, 162), UpgradeCatalog.describe(choices[i]), 16, Color("a9bbde"), rect.size.x - 48.0)
 		text_at(rect.position + Vector2(24, 228), "Press %d" % (i + 1), 15, Color("ffe09b"))
 
 func draw_pause() -> void:
 	fill_screen(Color(0.02,0.03,0.08,0.80))
-	text_centered(SCREEN.x * 0.5, 380, "PAUSED", 48, Color("eaf1ff"))
+	heading(SCREEN.x * 0.5, 380, "PAUSED", 44, Color("eaf1ff"))
 	var rows := [["CONTINUE", "resume", Color("69f4d4")], ["SETTINGS", "settings", Color("82b7ff")], ["MAIN MENU", "menu", Color("ff718b")]]
 	for i in range(rows.size()):
 		draw_menu_button(pause_row_rect(i), rows[i][0], rows[i][1], rows[i][2])
@@ -354,7 +381,7 @@ func draw_pause() -> void:
 
 func draw_settings(title: String, footer: String) -> void:
 	fill_screen(Color("0b1020"))
-	text_centered(SCREEN.x * 0.5, 300, title, 44, Color("eaf1ff"))
+	heading(SCREEN.x * 0.5, 300, title, 40, Color("eaf1ff"))
 	var rows := [
 		{"action": "sound", "key": "S", "label": "Sound Effects", "on": game.sound_enabled},
 		{"action": "rift", "key": "V", "label": "Rift Effects", "on": game.rift_effects_enabled},
@@ -378,14 +405,14 @@ func draw_toggle_row(rect: Rect2, row: Dictionary) -> void:
 
 func draw_game_over() -> void:
 	fill_screen(Color(0.03,0.01,0.07,0.82))
-	text_centered(SCREEN.x * 0.5, 200, "THE RIFT CONSUMES YOU", 42, Color("ff7590"))
+	heading(SCREEN.x * 0.5, 200, "THE RIFT CONSUMES YOU", 38, Color("ff7590"))
 	draw_run_summary(250.0)
 	text_centered(SCREEN.x * 0.5, 960, "SPACE: run again   •   ESC: main menu", 21, Color("ffe09b"))
 
 func draw_victory() -> void:
 	fill_screen(Color(0.02,0.05,0.06,0.86))
 	var pulse := (sin(Time.get_ticks_msec() * 0.004) + 1.0) * 0.5
-	text_centered(SCREEN.x * 0.5, 190, "THE RIFT HOLDS", 48, Color("69f4d4").lerp(Color("ffe09b"), pulse))
+	heading(SCREEN.x * 0.5, 190, "THE RIFT HOLDS", 44, Color("69f4d4").lerp(Color("ffe09b"), pulse))
 	text_centered(SCREEN.x * 0.5, 232, "All %d waves cleared at danger %d" % [Balance.FINAL_WAVE, game.danger], 20, Color("dbe8ff"))
 	draw_run_summary(268.0)
 	var next_danger: int = game.danger + 1

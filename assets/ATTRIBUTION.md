@@ -43,3 +43,18 @@ the glyph can be tinted in-game. No other modification is made.
 | `shotgun` (weapon) | delapouite | sawed-off-shotgun |
 | `smg` (weapon) | skoll | machine-gun |
 | `wand` (weapon) | lorc | crystal-wand |
+
+## Kenney — sound effects
+
+- Packs: Interface Sounds, Impact Sounds, Sci-Fi Sounds
+- Source: https://kenney.nl/  (obtained via community mirrors of the same
+  CC0 packs: Calinou/kenney-interface-sounds,
+  Boyquotes/kenney-impact-sounds-for-godot,
+  Boyquotes/kenney-sci-fi-sounds-for-godot)
+- License: **CC0 1.0** — attribution not required, retained as a courtesy.
+
+## Fonts
+
+- **Orbitron** (headings) and **Rajdhani** (UI text), both from Google Fonts.
+- License: **SIL Open Font License 1.1** — full text kept beside the fonts in
+  `assets/fonts/OFL-Orbitron.txt` and `assets/fonts/OFL-Rajdhani.txt`.

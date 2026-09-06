@@ -23,6 +23,19 @@ static func texture(path: String) -> Texture2D:
 		_cache[path] = load(path) as Texture2D if ResourceLoader.exists(path) else null
 	return _cache[path]
 
+# Level-up rewards are stat grants, so they borrow the icon of the item that
+# grants the same thing. No extra art, and the two screens teach each other.
+const STAT_ICON := {
+	"damage": "focus_lens", "attack_speed": "hair_trigger", "max_hp": "ration_pack",
+	"armor": "scrap_plate", "pickup_radius": "magnet_core", "speed": "coil_spring",
+	"crit_chance": "honed_edge", "crit_damage": "honed_edge", "attack_range": "long_barrel",
+	"lifesteal": "leech_rune", "harvesting": "salvage_rig", "luck": "lucky_coin",
+	"dodge": "ghost_step", "hp_regen": "repair_field",
+}
+
+static func stat(canvas: CanvasItem, stat_name: String, at: Vector2, size: float, color: Color) -> void:
+	item(canvas, String(STAT_ICON.get(stat_name, "focus_lens")), at, size, color)
+
 static func weapon(canvas: CanvasItem, id: String, at: Vector2, size: float, color: Color) -> void:
 	draw_icon(canvas, WEAPON_PATH % id, at, size, color)
 

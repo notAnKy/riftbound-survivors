@@ -86,6 +86,7 @@ func capture() -> void:
 	await shoot("07_nova")
 
 	# Damage numbers and an elite (the ringed one) under sustained fire.
+	s.player.position = Arena.BOUNDS.get_center()
 	s.round_number = 8
 	s.round_phase = "cleanup"
 	for enemy in s.actors.get_children():
@@ -94,7 +95,8 @@ func capture() -> void:
 	s.add_weapon("smg", 2)
 	s.add_weapon("shotgun", 1)
 	for i in range(7):
-		var at: Vector2 = s.player.position + Vector2(randf_range(-250, 250), randf_range(-190, 190))
+		var ring: float = randf_range(190.0, 330.0)
+		var at: Vector2 = s.player.position + Vector2.RIGHT.rotated(TAU * float(i) / 7.0 + 0.4) * ring
 		s.spawn_enemy(EnemyCatalog.all()[i % 4], at, false, i == 0)
 	await settle(50)
 	await shoot("09_numbers")

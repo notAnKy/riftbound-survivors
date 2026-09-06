@@ -170,6 +170,25 @@ self-intersecting is not: the lance icon's spear head wound back across itself
 and every draw printed `Invalid polygon data, triangulation failed`. Split a
 shape like that into triangles rather than trying to trace it in one loop.
 
+## Audio
+
+`AudioSfx` holds a pool of `AudioStreamPlayer` voices and round-robins
+through them, so a shotgun volley, a kill and a pickup can ring at once. The
+previous version was a single generated sine: every sound cut off the one
+before it, which in a busy wave is one voice fighting itself.
+
+`BANKS` maps a name to how many numbered variations exist on disk, and `play`
+picks one at random and detunes it slightly. That is what stops a fast weapon
+sounding like a stuck loop. Weapons name their bank (`light`/`medium`/`heavy`)
+in the catalog, and fast weapons are mixed quieter or an SMG drowns the rest.
+
+## Type
+
+Orbitron for headings, Rajdhani for everything else. `GameUI.heading()` draws
+with the display face; `text_at` and friends stay on the UI face. Orbitron is
+a **variable** font, so it is wrapped in a `FontVariation` with `wght` 800 --
+loaded raw it renders at its thinnest weight, which is useless for a title.
+
 ## Feel
 
 Three things sell a hit, and each is deliberately cheap:
@@ -188,6 +207,11 @@ Three things sell a hit, and each is deliberately cheap:
   mid hit-stop would otherwise strand the whole game at 6% speed with nothing
   left running to undo it. The deadline is real time (`Time.get_ticks_msec`),
   since scaled delta would stretch with the effect.
+
+**Weapons are drawn orbiting the player**, each turned toward its own target
+and flashing when it fires. The rack is drawn in `Player._draw`, which renders
+*before* the `Sprite2D` child, so the weapons sit behind the character instead
+of covering it. `Weapon.aim` and `Weapon.flash` exist purely for this.
 
 **Elites** are any enemy with every dimension scaled at once -- health, size,
 speed, material value -- and a gold ring drawn round them. No separate art, no

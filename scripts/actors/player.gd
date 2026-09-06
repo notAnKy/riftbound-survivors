@@ -9,6 +9,7 @@ const DASH_TIME := 0.16
 const DASH_COOLDOWN := 4.0
 const BODY_RADIUS := 13.0
 const BASE_PICKUP_RADIUS := 105.0
+const RACK_RADIUS := 30.0
 
 # Everything derived lives on the sheet. The session hands one in at the start
 # of a run and then only ever adds to it, so an item bought in the shop changes
@@ -24,6 +25,9 @@ var alive := true
 var heal_flash := 0.0
 var tint := Color.WHITE
 var rng := RandomNumberGenerator.new()
+# Set by the session so the equipped weapons can be drawn orbiting the
+# character, each turned toward its own target.
+var weapons: Array = []
 
 var max_hp: float:
 	get: return maxf(1.0, stats.get_stat("max_hp"))
@@ -62,8 +66,27 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity = direction * speed
 	move_and_slide()
+	queue_redraw()
 
 # Sprites in the Kenney pack are drawn facing +X, so an angle is all it takes.
+# Drawn on the player itself, which renders before its Sprite child, so the
+# rack sits behind the character rather than covering it.
+func _draw() -> void:
+	var count := weapons.size()
+	if count == 0: return
+	for i in range(count):
+		var weapon = weapons[i]
+		var slot := TAU * float(i) / float(count) - PI * 0.5
+		var base := Vector2.RIGHT.rotated(slot) * RACK_RADIUS
+		draw_set_transform(base, weapon.aim, Vector2.ONE)
+		var tint: Color = weapon.def().color
+		if weapon.flash > 0.0:
+			var punch: float = clampf(weapon.flash / 0.09, 0.0, 1.0)
+			draw_circle(Vector2(15.0, 0.0), 5.0 + 7.0 * punch, Color(1.0, 0.93, 0.62, 0.75 * punch))
+			draw_circle(Vector2(15.0, 0.0), 2.5 + 3.0 * punch, Color(1.0, 1.0, 1.0, 0.9 * punch))
+		Icons.weapon(self, weapon.id, Vector2.ZERO, 12.0, tint)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 func aim_at(target: Vector2) -> void:
 	($Sprite as Sprite2D).rotation = (target - global_position).angle()
 

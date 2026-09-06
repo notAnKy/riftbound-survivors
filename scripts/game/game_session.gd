@@ -103,7 +103,7 @@ func reset_run() -> void:
 	player.position = Arena.BOUNDS.get_center()
 	add_child(player)
 	player.died.connect(func() -> void: run_ended.emit())
-	player.was_hit.connect(func() -> void: add_shake(Balance.SHAKE_PLAYER_HIT))
+	player.was_hit.connect(on_player_hit)
 	(player.get_node("Magnet") as Area2D).area_entered.connect(on_magnet_touched)
 	run_time = 0.0
 	spawn_timer = 0.0
@@ -119,7 +119,12 @@ func reset_run() -> void:
 	shake = 0.0
 	position = Vector2.ZERO
 	player.hp = player.max_hp
+	player.weapons = weapons
 	player.refresh_pickup_radius()
+
+func on_player_hit() -> void:
+	add_shake(Balance.SHAKE_PLAYER_HIT)
+	audio.play("player_hurt", 2.0)
 
 func apply_character(index: int) -> void:
 	if not is_instance_valid(player): return
@@ -148,7 +153,7 @@ func tick(delta: float) -> void:
 	if round_phase == "cleanup" and actors.get_child_count() == 0:
 		if round_number >= Balance.FINAL_WAVE:
 			round_phase = "won"
-			audio.play_tone(1180.0, 0.5)
+			audio.play("victory", 2.0)
 			run_won.emit()
 		else:
 			finish_wave()
@@ -160,7 +165,7 @@ func finish_wave() -> void:
 	var harvest := int(stats.get_stat("harvesting"))
 	if harvest > 0: materials += harvest
 	shop.open(rng, round_number, stats.get_stat("luck"))
-	audio.play_tone(920.0, 0.18)
+	audio.play("wave_clear")
 	wave_cleared.emit()
 
 func begin_round() -> void:
@@ -172,7 +177,7 @@ func begin_round() -> void:
 	if round_number % 5 == 0:
 		var top := Vector2(Arena.BOUNDS.get_center().x, Arena.BOUNDS.position.y + 70.0)
 		spawn_enemy(EnemyCatalog.boss(), top, true)
-		audio.play_tone(90.0, 0.45)
+		audio.play("boom", 3.0)
 
 # --- shop transactions -------------------------------------------------------
 
@@ -190,7 +195,7 @@ func buy(index: int) -> bool:
 	shop.take(index)
 	if offer.kind == "weapon": add_weapon(String(offer.id), int(offer.tier))
 	else: add_item(String(offer.id))
-	audio.play_tone(660.0, 0.08)
+	audio.play("buy")
 	return true
 
 func reroll_shop() -> bool:
@@ -198,14 +203,14 @@ func reroll_shop() -> bool:
 	if materials < cost: return false
 	materials -= cost
 	shop.reroll(rng, round_number, stats.get_stat("luck"))
-	audio.play_tone(430.0, 0.06)
+	audio.play("reroll")
 	return true
 
 func sell_weapon(index: int) -> bool:
 	if index < 0 or index >= weapons.size() or weapons.size() <= 1: return false
 	materials += weapons[index].sell_value()
 	weapons.remove_at(index)
-	audio.play_tone(360.0, 0.07)
+	audio.play("sell")
 	return true
 
 # A third copy of the same weapon at the same tier merges upward, so a full
@@ -232,7 +237,7 @@ func combine_weapons() -> void:
 			if same.size() < 3: continue
 			for i in range(3): weapons.erase(same[i])
 			weapons.append(Weapon.new(weapon.id, weapon.tier + 1))
-			audio.play_tone(880.0, 0.16)
+			audio.play("merge", 2.0)
 			merged = true
 			break
 
@@ -290,6 +295,7 @@ func spawn_enemy(def: Dictionary, at: Vector2, is_boss: bool, is_elite: bool = f
 	return enemy
 
 func on_enemy_damaged(at: Vector2, amount: float, crit: bool) -> void:
+	audio.play("crit" if crit else "hit", -6.0 if crit else -15.0)
 	if numbers.get_child_count() >= MAX_NUMBERS: return
 	var number: DamageNumber = NUMBER_SCENE.instantiate()
 	number.setup(at, amount, crit)
@@ -322,13 +328,21 @@ func aim_player() -> void:
 # frame instead of sharing one timer.
 func fire_weapons(delta: float) -> void:
 	if not is_instance_valid(player) or not player.alive: return
+	# The rack drawn around the player reads straight off this list.
+	player.weapons = weapons
 	for weapon in weapons:
+		weapon.flash = maxf(0.0, weapon.flash - delta)
 		weapon.timer -= delta
 		if weapon.timer > 0.0: continue
 		var reach := weapon.attack_range(stats)
 		var target := nearest_enemy(reach)
-		if target == null: continue
+		if target == null:
+			# Nothing in range: settle in behind the way the player is facing.
+			weapon.aim = lerp_angle(weapon.aim, player.last_move.angle(), 0.15)
+			continue
+		weapon.aim = (target.position - player.position).angle()
 		weapon.timer = weapon.cooldown(stats)
+		weapon.flash = 0.09
 		fire(weapon, target, reach)
 
 func fire(weapon: Weapon, target: Enemy, reach: float) -> void:
@@ -347,7 +361,7 @@ func fire(weapon: Weapon, target: Enemy, reach: float) -> void:
 		elif spread > 0.0: offset = rng.randf_range(-spread, spread)
 		var crit := stats.roll_crit(rng)
 		add_shot(direction.rotated(offset), bullet_speed, life, damage * crit, def.color, int(def.pierce), crit > 1.0)
-	audio.play_tone(340.0 + float(def.damage) * 4.0, 0.05)
+	audio.play("shoot_%s" % def.get("sound", "light"), -13.0 if weapon.cooldown(stats) < 0.25 else -6.0)
 
 func add_shot(direction: Vector2, speed: float, life: float, damage: float, color: Color, pierce: int, is_crit: bool = false) -> void:
 	var shot: Projectile = SHOT_SCENE.instantiate()
@@ -366,7 +380,7 @@ func on_enemy_shot(from: Vector2, direction: Vector2, damage: float, shot_speed:
 
 func on_enemy_died(at: Vector2, material_value: int, was_boss: bool) -> void:
 	kills += 1
-	audio.play_tone(190.0, 0.06)
+	audio.play("kill", -3.0)
 	if was_boss:
 		add_shake(Balance.SHAKE_BOSS_DEATH)
 		hit_stop(Balance.HITSTOP_BOSS_DEATH)
@@ -399,15 +413,16 @@ func on_magnet_touched(area: Area2D) -> void:
 func on_pickup_collected(value: int, kind: String = Pickup.KIND_MATERIAL) -> void:
 	if kind == Pickup.KIND_HEALTH:
 		if is_instance_valid(player): player.heal(float(value))
-		audio.play_tone(520.0, 0.10)
+		audio.play("heal", 2.0)
 		return
 	materials += value
 	xp += value
-	audio.play_tone(740.0, 0.04)
+	audio.play("pickup", -9.0)
 	if xp >= xp_to_next:
 		xp -= xp_to_next
 		level += 1
 		xp_to_next = Balance.next_level_xp(xp_to_next)
+		audio.play("level_up", 2.0)
 		upgrades = UpgradeCatalog.roll_choices(rng, round_number, stats.get_stat("luck"))
 		level_up_requested.emit()
 
@@ -416,7 +431,7 @@ func choose_upgrade(index: int) -> void:
 	apply_stat_gain(upgrades[index].stats)
 
 func dash() -> void:
-	if is_instance_valid(player) and player.dash(): audio.play_tone(820.0, 0.09)
+	if is_instance_valid(player) and player.dash(): audio.play("dash")
 
 # Rift Nova: a shockwave that damages and throws everything around the player.
 # The visual is a separate node so the ring can outlive the frame the damage
@@ -441,4 +456,4 @@ func rift_nova() -> void:
 	nova_cooldown = Balance.NOVA_COOLDOWN
 	add_shake(Balance.SHAKE_NOVA)
 	hit_stop(Balance.HITSTOP_NOVA)
-	audio.play_tone(150.0, 0.35)
+	audio.play("nova", 3.0)

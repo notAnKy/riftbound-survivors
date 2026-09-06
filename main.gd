@@ -90,9 +90,11 @@ func menu_items() -> Array[String]:
 func move_menu(step: int) -> void:
 	var items := menu_items()
 	if items.is_empty(): return
+	audio.play("ui_move", -5.0)
 	menu_index = wrapi(menu_index + step, 0, items.size())
 
 func activate_menu() -> void:
+	audio.play("ui_click", -2.0)
 	var items := menu_items()
 	if menu_index >= 0 and menu_index < items.size():
 		handle_menu_action(items[menu_index])

@@ -7,6 +7,10 @@ extends RefCounted
 var id := "pistol"
 var tier := 1
 var timer := 0.0
+# Where this weapon is pointing, and how recently it fired -- both purely
+# for the rack drawn around the player.
+var aim := 0.0
+var flash := 0.0
 
 func _init(weapon_id: String = "pistol", weapon_tier: int = 1) -> void:
 	id = weapon_id

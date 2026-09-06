@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 123
+const EXPECTED_CHECKS := 128
 var checks := 0
 
 func _initialize() -> void:
@@ -15,9 +15,14 @@ func check(label: String, ok: bool) -> void:
 	print(("PASS  " if ok else "FAIL  ") + label)
 	if not ok: failures += 1
 
+# Waits a physics frame AND an idle frame. Godot can run several physics steps
+# inside one idle frame, so awaiting only physics_frame let a test advance
+# without _process ever running -- and the wave clock and screen shake both
+# live in _process. That silently broke two tests when startup got slower.
 func step(frames: int) -> void:
 	for i in range(frames):
 		await physics_frame
+		await process_frame
 
 func fresh_game() -> Node:
 	var game = load("res://Main.tscn").instantiate()
@@ -57,6 +62,7 @@ func bootstrap() -> void:
 	await test_danger_levels()
 	test_profile_persistence()
 	test_every_icon_exists()
+	await test_audio_banks()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -672,3 +678,31 @@ func test_every_icon_exists() -> void:
 			missing.append("item:" + String(def.id))
 	check("every weapon and item has an icon (%s)" % ("all present" if missing.is_empty() else str(missing)), missing.is_empty())
 	check("a missing icon degrades instead of crashing", Icons.texture("res://assets/icons/does_not_exist.svg") == null)
+
+# The old audio was one generated sine, so a busy wave was a single voice
+# cutting itself off. These assert the replacement is actually wired up.
+func test_audio_banks() -> void:
+	var game = await fresh_game()
+	var audio = game.audio
+	var empty: Array[String] = []
+	for name in AudioSfx.BANKS:
+		if (audio.banks.get(name, []) as Array).is_empty(): empty.append(String(name))
+	check("every sound bank loaded from disk (%s)" % ("all present" if empty.is_empty() else str(empty)), empty.is_empty())
+	check("the voice pool is polyphonic (%d voices)" % audio.voices.size(), audio.voices.size() >= 8)
+	var varied := 0
+	for name in AudioSfx.BANKS:
+		if (audio.banks[name] as Array).size() > 1: varied += 1
+	check("repeated sounds have variations (%d banks)" % varied, varied >= 5)
+	var unmapped: Array[String] = []
+	for def in WeaponCatalog.all():
+		if not AudioSfx.BANKS.has("shoot_" + String(def.get("sound", ""))): unmapped.append(String(def.id))
+	check("every weapon maps to a real shoot bank (%s)" % ("ok" if unmapped.is_empty() else str(unmapped)), unmapped.is_empty())
+	audio.stop_all()
+	audio.enabled = false
+	audio.play("kill")
+	var silent := 0
+	for voice in audio.voices:
+		if voice.playing: silent += 1
+	check("sound off means nothing plays (%d voices busy)" % silent, silent == 0)
+	audio.enabled = true
+	game.free()
