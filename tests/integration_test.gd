@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 229
+const EXPECTED_CHECKS := 233
 var checks := 0
 
 func _initialize() -> void:
@@ -485,6 +485,8 @@ func pad_press(game, button: int) -> void:
 	var event := InputEventJoypadButton.new()
 	event.button_index = button
 	event.pressed = true
+	# A real event reaches _input first, which is where the device is tracked.
+	game._input(event)
 	game._unhandled_input(event)
 
 func move_mouse(game, at: Vector2) -> void:
@@ -916,6 +918,31 @@ func test_controller() -> void:
 	game.input_device = "pad"
 	game._input(key)
 	check("and a key switches them back (%s)" % game.input_device, game.input_device == "keyboard")
+
+	# The cursor gets out of the way when a pad takes over. This also has to stop
+	# sync_hover: the OS mouse stays parked where it was left, and syncing from
+	# it would drag the menu cursor back onto that row every frame.
+	game.input_device = "keyboard"
+	game.state = "settings"
+	game.menu_hover = "fullscreen"
+	pad_press(game, JOY_BUTTON_DPAD_DOWN)
+	# Input.mouse_mode itself cannot be asserted here: the headless display
+	# server discards the write and always reads back VISIBLE. So this checks the
+	# predicate that drives it, which is also what gates the hover sync -- the
+	# two cannot disagree about who is in control.
+	check("a pad stands the mouse down (%s)" % game.input_device,
+		game.input_device == "pad" and not game.mouse_active())
+	check("and drops the stale hover (%s)" % game.menu_hover, game.menu_hover == "")
+
+	var jitter := InputEventMouseMotion.new()
+	jitter.relative = Vector2(0.6, 0.0)
+	game._input(jitter)
+	check("jitter does not bring the cursor back (%s)" % game.input_device, game.input_device == "pad")
+	var moved := InputEventMouseMotion.new()
+	moved.relative = Vector2(14.0, 5.0)
+	game._input(moved)
+	check("but a real movement hands it back (%s)" % game.input_device,
+		game.input_device == "keyboard" and game.mouse_active())
 
 	# every prompt the UI can draw resolves to a glyph, on either brand of pad
 	var missing: Array[String] = []

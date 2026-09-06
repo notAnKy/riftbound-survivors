@@ -16,6 +16,11 @@ const SLIDER_ROWS := ["sfx", "music"]
 const SLIDER_STEP := 0.05
 const SLIDER_RATE := 0.8
 
+# How far the mouse has to actually move to take control back from a pad. A
+# mouse emits sub-pixel jitter on its own, and a nudged desk should not pop the
+# cursor back over a menu somebody is steering with a stick.
+const MOUSE_WAKE := 2.0
+
 # Screens that are a vertical list: up and down walk the rows, left and right
 # adjust whichever row is focused.
 const LIST_STATES := ["title", "settings", "settings_pause", "paused", "confirm_quit"]
@@ -36,7 +41,17 @@ var profile := ProfileManager.new()
 var menu_hover := ""
 # Which device the player last used, so every on-screen prompt names the thing
 # actually in their hands instead of always naming a key.
-var input_device := "keyboard"
+var input_device := "keyboard":
+	set(value):
+		if input_device == value: return
+		input_device = value
+		# A cursor is meaningless while a pad is driving, and it sits on top of
+		# a menu it is not steering. Moving the mouse brings it straight back --
+		# MOUSE_MODE_HIDDEN still delivers motion events, unlike CAPTURED.
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if mouse_active() else Input.MOUSE_MODE_HIDDEN
+		# Hover must not outlive the switch. sync_hover stops running on a pad,
+		# so a stale menu_hover would leave a row lit that nothing is on.
+		if value == "pad": menu_hover = ""
 # Stick menu navigation, latched so one flick moves one row while a held stick
 # scrolls at a steady rate.
 var stick_held := Vector2.ZERO
@@ -110,7 +125,10 @@ func _process(delta: float) -> void:
 	get_tree().paused = state != "playing"
 	if state == "playing":
 		session.tick(delta)
-	if state in MOUSE_STATES:
+	# Not while a pad is driving. The OS mouse stays parked wherever it was left,
+	# so syncing from it would haul the menu cursor back onto that row every
+	# frame and the d-pad would appear to do nothing at all.
+	if state in MOUSE_STATES and mouse_active():
 		sync_hover(get_viewport().get_mouse_position())
 	poll_stick(delta)
 	# Both ways of sweeping a volume bar, and one disk write when the sweep
@@ -135,6 +153,11 @@ func sync_hover(point: Vector2) -> void:
 # keyboard cursor and the controller all read this -- menu_action_at once kept
 # its own copy of the settings rows, and adding a row sent every click to the
 # wrong setting.
+# Whether the mouse is currently the thing driving. Both the cursor and the
+# hover sync hang off this, so they can never disagree about who is in control.
+func mouse_active() -> bool:
+	return input_device != "pad"
+
 func menu_items() -> Array[String]:
 	var items: Array[String] = []
 	match state:
@@ -417,6 +440,11 @@ func _input(event: InputEvent) -> void:
 		# A resting stick emits motion constantly, so only a real push counts.
 		if absf((event as InputEventJoypadMotion).axis_value) >= Gamepad.MENU_DEADZONE:
 			input_device = "pad"
+	elif event is InputEventMouseMotion:
+		# Only a real movement takes control back, not the jitter a mouse
+		# produces sitting still.
+		if (event as InputEventMouseMotion).relative.length() >= MOUSE_WAKE:
+			input_device = "keyboard"
 	elif event is InputEventKey or event is InputEventMouse:
 		input_device = "keyboard"
 
