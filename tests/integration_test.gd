@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 121
+const EXPECTED_CHECKS := 123
 var checks := 0
 
 func _initialize() -> void:
@@ -56,6 +56,7 @@ func bootstrap() -> void:
 	await test_victory_ends_the_run()
 	await test_danger_levels()
 	test_profile_persistence()
+	test_every_icon_exists()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -658,3 +659,16 @@ func test_profile_persistence() -> void:
 	check("winning at 0 unlocks 1", ladder.record_victory(0) and ladder.max_danger() == 1)
 	check("winning at 0 again changes nothing", not ladder.record_victory(0) and ladder.max_danger() == 1)
 	check("winning at 1 unlocks 2", ladder.record_victory(1) and ladder.max_danger() == 2)
+
+# Adding a weapon or item without its icon would otherwise only show up as a
+# blank space on a shop card, which is easy to miss.
+func test_every_icon_exists() -> void:
+	var missing: Array[String] = []
+	for def in WeaponCatalog.all():
+		if Icons.texture(Icons.WEAPON_PATH % def.id) == null:
+			missing.append("weapon:" + String(def.id))
+	for def in ItemCatalog.all():
+		if Icons.texture(Icons.ITEM_PATH % def.id) == null:
+			missing.append("item:" + String(def.id))
+	check("every weapon and item has an icon (%s)" % ("all present" if missing.is_empty() else str(missing)), missing.is_empty())
+	check("a missing icon degrades instead of crashing", Icons.texture("res://assets/icons/does_not_exist.svg") == null)

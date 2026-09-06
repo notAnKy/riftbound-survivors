@@ -157,7 +157,8 @@ printed on a shop card is the range actually fired, Range stat included.
 
 ## Icons
 
-Weapon and item icons are **drawn, not imported** (`scripts/ui/icons.gd`).
+Weapon and item icons come from **game-icons.net** (CC BY 3.0, credited per
+artist in `assets/ATTRIBUTION.md`) via `scripts/ui/icons.gd`.
 The UI is immediate-mode anyway, the Kenney pack has no inventory art, and a
 drawn glyph takes each weapon's colour for free and stays sharp at any size.
 Every shape is authored in a -1..1 box and multiplied by a `size`, so one
