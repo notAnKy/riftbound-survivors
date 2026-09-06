@@ -119,6 +119,7 @@ func start_run() -> void:
 	if not profile.is_character_unlocked(selected_character):
 		if not profile.unlock_character(selected_character, int(CharacterCatalog.get_character(selected_character).cost)): return
 	session.selected_gun = selected_gun
+	session.selected_character = selected_character
 	session.danger = danger
 	session.reset_run()
 	session.apply_character(selected_character)
@@ -251,6 +252,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif state == "armory":
 		if event.keycode >= KEY_1 and event.keycode <= KEY_3: selected_gun = event.keycode - KEY_1
 		elif event.keycode == KEY_C: selected_character = (selected_character + 1) % CharacterCatalog.all().size()
+		elif event.keycode == KEY_X: selected_character = (selected_character - 1 + CharacterCatalog.all().size()) % CharacterCatalog.all().size()
 		elif event.keycode == KEY_LEFT: set_danger(danger - 1)
 		elif event.keycode == KEY_RIGHT: set_danger(danger + 1)
 		elif event.keycode == KEY_ESCAPE or event.keycode == KEY_B: state = "title"

@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 143
+const EXPECTED_CHECKS := 161
 var checks := 0
 
 func _initialize() -> void:
@@ -66,6 +66,10 @@ func bootstrap() -> void:
 	await test_music()
 	await test_healing_is_scarce()
 	test_shop_prices_climb()
+	await test_melee_archetype()
+	await test_orbital_archetype()
+	await test_homing_archetype()
+	await test_character_constraints()
 	test_balance_curve()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
@@ -774,3 +778,131 @@ func test_shop_prices_climb() -> void:
 		for offer in shop.offers: late += int(offer.price)
 	check("a late shop costs far more than an early one (%d vs %d)" % [late, early], float(late) > float(early) * 2.0)
 	check("prices still start low (%d for four offers at wave 1)" % (early / 40), early / 40 < 120)
+
+# --- phase 6: weapon archetypes and characters that force a build ------------
+
+# Clears the arena AND unequips the starting weapon, so an archetype test is
+# measuring only the archetype it drives by hand.
+func clear_field(s) -> void:
+	for enemy in s.actors.get_children():
+		s.actors.remove_child(enemy)
+		enemy.queue_free()
+	for shot in s.shots.get_children():
+		s.shots.remove_child(shot)
+		shot.queue_free()
+	var empty: Array[Weapon] = []
+	s.weapons = empty
+	s.round_phase = "cleanup"
+
+func tough_enemy(s, at: Vector2):
+	var mob = s.spawn_enemy(EnemyCatalog.all()[0], at, false)
+	mob.max_hp = 1000000.0
+	mob.hp = mob.max_hp
+	return mob
+
+func test_melee_archetype() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	clear_field(s)
+	var blade := Weapon.new("blade", 1)
+	var reach: float = blade.attack_range(s.stats)
+	var front = tough_enemy(s, s.player.position + Vector2(reach * 0.6, 0))
+	var behind = tough_enemy(s, s.player.position + Vector2(-reach * 0.6, 0))
+	var far = tough_enemy(s, s.player.position + Vector2(reach * 3.0, 0))
+	await step(1)
+	var front_hp: float = front.hp
+	var behind_hp: float = behind.hp
+	var far_hp: float = far.hp
+	var was: Vector2 = front.position
+	s.swing_melee(blade, front, reach)
+	check("a melee swing hits what is in front (%.0f -> %.0f)" % [front_hp, front.hp], front.hp < front_hp)
+	check("it spares what is behind", is_equal_approx(behind.hp, behind_hp))
+	check("and what is out of reach", is_equal_approx(far.hp, far_hp))
+	check("it spawns a visible swing", s.get_node_or_null("MeleeSwing") != null)
+	await step(8)
+	check("it knocks the target back (%.0fpx)" % front.position.distance_to(was), front.position.distance_to(was) > 10.0)
+	check("melee fires no projectile", s.shots.get_child_count() == 0)
+	game.free()
+
+func test_orbital_archetype() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	clear_field(s)
+	var orb := Weapon.new("orb", 1)
+	var radius: float = float(orb.def().orbit_radius)
+	var mob = tough_enemy(s, s.player.position + Vector2(radius, 0))
+	await step(1)
+	var before: float = mob.hp
+	var angle_before: float = orb.orbit
+	for i in range(40):
+		s.tick_orbital(orb, 0.05)
+	check("the orbital travels round (%.2f rad)" % orb.orbit, orb.orbit > angle_before)
+	check("it grinds what it passes over (%.0f -> %.0f)" % [before, mob.hp], mob.hp < before)
+	check("and fires no projectile", s.shots.get_child_count() == 0)
+	game.free()
+
+func test_homing_archetype() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	clear_field(s)
+	var mob = tough_enemy(s, s.player.position + Vector2(0, -300))
+	await step(1)
+	# fired sideways, so only steering can bring it round
+	var shot = s.add_shot(Vector2.RIGHT, 300.0, 3.0, 5.0, Color.WHITE, 0)
+	shot.chase(mob, 7.0)
+	var straight = s.add_shot(Vector2.RIGHT, 300.0, 3.0, 5.0, Color.WHITE, 0)
+	await step(14)
+	if is_instance_valid(shot) and is_instance_valid(straight):
+		check("a homing shot turns toward its target (%.2f vs %.2f)" % [shot.velocity.angle(), straight.velocity.angle()], shot.velocity.y < straight.velocity.y - 20.0)
+	else:
+		check("a homing shot turns toward its target", false)
+	check("a plain shot does not steer", not is_instance_valid(straight) or is_equal_approx(straight.velocity.y, 0.0))
+	game.free()
+
+func test_character_constraints() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	var blade_dancer := -1
+	var siege := -1
+	for i in range(CharacterCatalog.all().size()):
+		var c := CharacterCatalog.get_character(i)
+		if not (c.kinds as Array).is_empty(): blade_dancer = i
+		if int(c.slots) < 6: siege = i
+	check("there is a kind-restricted character", blade_dancer >= 0)
+	check("there is a fewer-slots character", siege >= 0)
+
+	# a melee-only character cannot start with, be offered, or buy a gun
+	game.selected_character = blade_dancer
+	game.selected_gun = 0
+	game.start_run()
+	await step(2)
+	s = game.session
+	check("a melee-only character starts with a melee weapon (%s)" % s.weapons[0].id, s.weapons[0].kind() == "melee")
+	s.finish_wave()
+	var offered_kinds: Array[String] = []
+	for i in range(200):
+		s.shop.roll(s.rng, 6, 0.0)
+		for offer in s.shop.offers:
+			if offer.kind == "weapon": offered_kinds.append(WeaponCatalog.get_weapon(String(offer.id)).kind)
+	check("the shop only offers weapons it can hold (%d rolls)" % offered_kinds.size(), offered_kinds.size() > 0 and not offered_kinds.has("ranged"))
+	s.materials = 9999
+	var gun: Dictionary = {"kind":"weapon", "id":"rifle", "tier":1, "name":"x", "text":"", "color":Color.WHITE, "price":1}
+	s.shop.offers[0] = gun
+	check("buying a forbidden weapon is refused", not s.buy(0))
+
+	# fewer slots is actually enforced
+	game.selected_character = siege
+	game.start_run()
+	await step(2)
+	s = game.session
+	check("a restricted character has fewer slots (%d)" % s.weapon_slots, s.weapon_slots < GameSession.MAX_WEAPONS)
+	var rack: Array[Weapon] = []
+	for i in range(s.weapon_slots):
+		rack.append(Weapon.new(WeaponCatalog.all()[i].id, 1))
+	s.weapons = rack
+	s.finish_wave()
+	s.materials = 9999
+	var extra: Dictionary = {"kind":"weapon", "id":"lance", "tier":1, "name":"x", "text":"", "color":Color.WHITE, "price":1}
+	s.shop.offers[0] = extra
+	check("a full rack refuses another weapon", not s.buy(0))
+	game.free()

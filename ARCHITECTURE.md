@@ -155,6 +155,32 @@ Two shapes are deliberate:
 Everything downstream reads the sheet, so one item bought in the shop changes
 health, movement, all six weapons and survivability at once.
 
+### Weapon archetypes
+
+`kind` on a weapon definition is the verb, and it is what stops every weapon
+being the same thing with different numbers:
+
+| kind | behaviour |
+| --- | --- |
+| `ranged` | fires a projectile at the nearest target in reach |
+| `homing` | same, but the shot steers after the target it was fired at |
+| `melee` | no projectile: sweeps an arc, damages and knocks back everything inside it |
+| `orbital` | a shard circling the player, grinding whatever it passes over |
+
+`fire()` dispatches on it. An **orbital never waits for a target** -- it is
+handled before the cooldown check in `fire_weapons`, because it is always out
+there rather than firing when something comes into range. A **homing shot does
+not re-acquire**: a dart that loses its target flies straight, which keeps a
+miss possible.
+
+### Characters
+
+`slots` and `kinds` on a character are what make it a strategy rather than a
+stat block. `kinds` restricts which verbs it may carry (empty means all), and
+it is enforced in three places that must agree: the starting weapon falls back
+to the character's own if the armory pick is not allowed, `Shop` only rolls
+weapons of those kinds, and `buy()` refuses one anyway.
+
 ### Weapons
 
 Up to `GameSession.MAX_WEAPONS` (6). **Each has its own cooldown and picks its

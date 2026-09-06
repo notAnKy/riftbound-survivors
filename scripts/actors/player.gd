@@ -76,6 +76,15 @@ func _draw() -> void:
 	if count == 0: return
 	for i in range(count):
 		var weapon = weapons[i]
+		# An orbital is not in the rack: it is out on its own circle.
+		if weapon.kind() == "orbital":
+			var spot: Vector2 = Vector2.RIGHT.rotated(weapon.orbit) * weapon.orbit_radius
+			var glow: Color = weapon.def().color
+			draw_circle(spot, 19.0, Color(glow.r, glow.g, glow.b, 0.18))
+			draw_set_transform(spot, weapon.orbit, Vector2.ONE)
+			Icons.weapon(self, weapon.id, Vector2.ZERO, 15.0, glow)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			continue
 		var slot := TAU * float(i) / float(count) - PI * 0.5
 		var base := Vector2.RIGHT.rotated(slot) * RACK_RADIUS
 		draw_set_transform(base, weapon.aim, Vector2.ONE)

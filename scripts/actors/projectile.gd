@@ -14,6 +14,8 @@ var color := Color.WHITE
 var hostile := false
 var crit := false
 var already_hit: Array[Node] = []
+var chase_target: Node2D = null
+var chase_strength := 0.0
 
 func launch(from: Vector2, direction: Vector2, shot_speed: float, shot_damage: float, shot_life: float, shot_color: Color, shot_pierce: int, is_hostile: bool, is_crit: bool = false) -> void:
 	position = from
@@ -29,7 +31,18 @@ func launch(from: Vector2, direction: Vector2, shot_speed: float, shot_damage: f
 	collision_mask = Layers.WORLD | (Layers.PLAYER if is_hostile else Layers.ENEMY)
 	queue_redraw()
 
+# Homing shots keep steering toward whatever they were fired at. They do not
+# re-acquire: a dart that loses its target flies straight, which keeps a miss
+# possible and stops them feeling like guaranteed damage.
+func chase(target: Node2D, strength: float) -> void:
+	chase_target = target
+	chase_strength = strength
+
 func _physics_process(delta: float) -> void:
+	if chase_strength > 0.0 and is_instance_valid(chase_target):
+		var wanted: Vector2 = (chase_target.global_position - global_position).normalized() * velocity.length()
+		velocity = velocity.lerp(wanted, clampf(chase_strength * delta, 0.0, 1.0))
+		queue_redraw()
 	position += velocity * delta
 	life -= delta
 	if life <= 0.0: queue_free()

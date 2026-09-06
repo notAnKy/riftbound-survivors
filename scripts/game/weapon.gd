@@ -11,6 +11,10 @@ var timer := 0.0
 # for the rack drawn around the player.
 var aim := 0.0
 var flash := 0.0
+# Orbitals carry their own angle and the radius they were last drawn at,
+# so the visual and the damage check agree.
+var orbit := 0.0
+var orbit_radius := 110.0
 
 func _init(weapon_id: String = "pistol", weapon_tier: int = 1) -> void:
 	id = weapon_id
@@ -18,6 +22,9 @@ func _init(weapon_id: String = "pistol", weapon_tier: int = 1) -> void:
 
 func def() -> Dictionary:
 	return WeaponCatalog.get_weapon(id)
+
+func kind() -> String:
+	return String(def().get("kind", "ranged"))
 
 func display_name() -> String:
 	return WeaponCatalog.display_name(id, tier)

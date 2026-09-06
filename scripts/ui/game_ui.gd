@@ -95,8 +95,11 @@ func row_rect(index: int, count: int, size: Vector2, top: float, gap: float) -> 
 func card_rect(index: int) -> Rect2:
 	return row_rect(index, SHOP_CARDS, CARD_SIZE, CARD_TOP, CARD_GAP)
 
+func slot_count() -> int:
+	return game.session.weapon_slots
+
 func slot_rect(index: int) -> Rect2:
-	return row_rect(index, GameSession.MAX_WEAPONS, SLOT_SIZE, SLOT_TOP, SLOT_GAP)
+	return row_rect(index, slot_count(), SLOT_SIZE, SLOT_TOP, SLOT_GAP)
 
 func reroll_rect() -> Rect2:
 	return Rect2(Vector2(card_rect(0).position.x, BUTTON_TOP), BUTTON_SIZE)
@@ -207,7 +210,11 @@ func draw_armory() -> void:
 	text_at(panel.position + Vector2(40, 52), "C  %s" % character.name, 24, character.color)
 	text_at(panel.position + Vector2(40, 90), "%s  •  HP %d  •  SPEED %d" % [character.description, character.hp, character.speed], 17, Color("d1dcf5"))
 	var perks := ItemCatalog.describe(character)
-	text_at(panel.position + Vector2(40, 122), perks if perks != "" else "No stat modifiers", 15, Color("9fb3d9"))
+	var kinds: Array = character.get("kinds", [])
+	var shape := "%d weapon slots" % int(character.get("slots", 6))
+	if not kinds.is_empty(): shape += "  •  %s weapons only" % String(kinds[0]).to_upper()
+	text_at(panel.position + Vector2(40, 122), shape, 15, Color("ffcf77"))
+	text_at(panel.position + Vector2(320, 122), perks if perks != "" else "No stat modifiers", 15, Color("9fb3d9"))
 	text_right(panel.end.x - 40, panel.position.y + 122, "READY" if game.profile.is_character_unlocked(game.selected_character) else "UNLOCK  %d COINS" % character.cost, 15, Color("ffcf77"))
 	text_centered(SCREEN.x * 0.5, 762, "DANGER  —  arrows or click", 15, Color("8ea4cb"))
 	for i in range(Balance.DANGER_LEVELS):
@@ -305,8 +312,8 @@ func draw_offer_card(index: int, s: GameSession) -> void:
 	text_right(rect.end.x - 18, rect.position.y + 226, "(%d)" % (index + 1), 15, Color("ffe09b"))
 
 func draw_weapon_slots(s: GameSession) -> void:
-	text_at(Vector2(slot_rect(0).position.x, SLOT_TOP - 14), "WEAPONS  %d / %d  —  click to sell" % [s.weapons.size(), GameSession.MAX_WEAPONS], 15, Color("8ea4cb"))
-	for i in range(GameSession.MAX_WEAPONS):
+	text_at(Vector2(slot_rect(0).position.x, SLOT_TOP - 14), "WEAPONS  %d / %d  —  click to sell" % [s.weapons.size(), slot_count()], 15, Color("8ea4cb"))
+	for i in range(slot_count()):
 		var rect := slot_rect(i)
 		if i >= s.weapons.size():
 			draw_panel(rect, Color(0.06,0.08,0.15,0.6), Color("2b3550"), 1.0)

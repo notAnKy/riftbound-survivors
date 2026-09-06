@@ -12,6 +12,8 @@ const WEAPON_CHANCE := 0.45
 
 var offers: Array[Dictionary] = []
 var rerolls := 0
+# Set from the character. Empty means every weapon is on the table.
+var allowed_kinds: Array = []
 
 func reroll_cost() -> int:
 	return REROLL_BASE + rerolls * REROLL_STEP
@@ -50,7 +52,7 @@ func make_offer(rng: RandomNumberGenerator, round_number: int, luck: float) -> D
 	# is producing far more materials per wave than it did at the start.
 	var inflation := 1.0 + float(round_number) * Balance.SHOP_INFLATION_PER_WAVE
 	if rng.randf() < WEAPON_CHANCE:
-		var defs := WeaponCatalog.all()
+		var defs := WeaponCatalog.of_kinds(allowed_kinds)
 		var def: Dictionary = defs[rng.randi_range(0, defs.size() - 1)]
 		var tier := roll_tier(rng, round_number, luck)
 		return {

@@ -12,6 +12,7 @@ const SHOT_SCENE := preload("res://scenes/actors/Projectile.tscn")
 const PICKUP_SCENE := preload("res://scenes/actors/Pickup.tscn")
 const NOVA_SCENE := preload("res://scenes/actors/Nova.tscn")
 const NUMBER_SCENE := preload("res://scenes/actors/DamageNumber.tscn")
+const SWING_SCENE := preload("res://scenes/actors/MeleeSwing.tscn")
 # A fast weapon can land dozens of hits a second; past this many live numbers
 # the screen is unreadable anyway, so stop adding to it.
 const MAX_NUMBERS := 60
@@ -40,7 +41,12 @@ var round_length := 40.0
 var round_time_left := 40.0
 var round_phase := "combat"
 var selected_gun := 0
+var selected_character := 0
 var danger := 0
+# Both come from the chosen character, and both are what make a character a
+# strategy rather than a stat block.
+var weapon_slots := MAX_WEAPONS
+var allowed_kinds: Array = []
 var nova_cooldown := 0.0
 var shake := 0.0
 var hitstop_until := 0
@@ -95,7 +101,16 @@ func reset_run() -> void:
 		remove_child(player)
 		player.queue_free()
 	stats = Stats.new()
-	weapons = [Weapon.new(String(GunCatalog.get_gun(selected_gun).weapon), 1)]
+	var character := CharacterCatalog.get_character(selected_character)
+	weapon_slots = int(character.get("slots", MAX_WEAPONS))
+	allowed_kinds = character.get("kinds", [])
+	shop.allowed_kinds = allowed_kinds
+	# The armory pick only sticks if this character is allowed to hold it;
+	# otherwise the character's own weapon is the fallback.
+	var opening := String(GunCatalog.get_gun(selected_gun).weapon)
+	if not WeaponCatalog.allows(opening, allowed_kinds):
+		opening = String(character.weapon)
+	weapons = [Weapon.new(opening, 1)]
 	items = []
 	materials = 0
 	player = PLAYER_SCENE.instantiate()
@@ -128,6 +143,7 @@ func on_player_hit() -> void:
 
 func apply_character(index: int) -> void:
 	if not is_instance_valid(player): return
+	selected_character = index
 	var character := CharacterCatalog.get_character(index)
 	stats.set_stat("max_hp", float(character.hp))
 	stats.apply_dict(character.get("stats", {}))
@@ -164,6 +180,7 @@ func finish_wave() -> void:
 	round_phase = "shop"
 	var harvest := int(stats.get_stat("harvesting"))
 	if harvest > 0: materials += harvest
+	shop.allowed_kinds = allowed_kinds
 	shop.open(rng, round_number, stats.get_stat("luck"))
 	audio.play("wave_clear")
 	wave_cleared.emit()
@@ -189,8 +206,10 @@ func offer_affordable(index: int) -> bool:
 func buy(index: int) -> bool:
 	if not offer_affordable(index): return false
 	var offer: Dictionary = shop.offers[index]
-	if offer.kind == "weapon" and weapons.size() >= MAX_WEAPONS and not would_combine(String(offer.id), int(offer.tier)):
-		return false
+	if offer.kind == "weapon":
+		if not WeaponCatalog.allows(String(offer.id), allowed_kinds): return false
+		if weapons.size() >= weapon_slots and not would_combine(String(offer.id), int(offer.tier)):
+			return false
 	materials -= int(offer.price)
 	shop.take(index)
 	if offer.kind == "weapon": add_weapon(String(offer.id), int(offer.tier))
@@ -332,6 +351,11 @@ func fire_weapons(delta: float) -> void:
 	player.weapons = weapons
 	for weapon in weapons:
 		weapon.flash = maxf(0.0, weapon.flash - delta)
+		# An orbital is always out there grinding, so it never waits for a
+		# target to come into reach the way the others do.
+		if weapon.kind() == "orbital":
+			tick_orbital(weapon, delta)
+			continue
 		weapon.timer -= delta
 		if weapon.timer > 0.0: continue
 		var reach := weapon.attack_range(stats)
@@ -346,6 +370,59 @@ func fire_weapons(delta: float) -> void:
 		fire(weapon, target, reach)
 
 func fire(weapon: Weapon, target: Enemy, reach: float) -> void:
+	if weapon.kind() == "melee":
+		swing_melee(weapon, target, reach)
+		return
+	fire_shots(weapon, target, reach)
+
+# A sweep in front of the player: no projectile, everything inside the wedge is
+# hit at once and shoved back.
+func swing_melee(weapon: Weapon, target: Enemy, reach: float) -> void:
+	var def := weapon.def()
+	var facing: Vector2 = (target.position - player.position).normalized()
+	var arc := float(def.get("arc", 1.8))
+	var damage := weapon.damage(stats)
+	var knock := float(def.get("knockback", 260.0))
+	for node in actors.get_children():
+		var enemy := node as Enemy
+		if enemy == null or not enemy.alive: continue
+		var offset: Vector2 = enemy.position - player.position
+		if offset.length() > reach + enemy.radius: continue
+		if absf(facing.angle_to(offset)) > arc * 0.5: continue
+		var crit := stats.roll_crit(rng)
+		enemy.push(offset, knock)
+		enemy.take_damage(damage * crit, crit > 1.0)
+	var swing: MeleeSwing = SWING_SCENE.instantiate()
+	swing.position = player.position
+	swing.setup(facing.angle(), arc, reach, def.color)
+	add_child(swing)
+	audio.play("shoot_%s" % def.get("sound", "medium"), -7.0)
+
+# Circles the player and damages whatever it passes over, on its own cooldown
+# so it grinds rather than deleting a crowd on contact.
+func tick_orbital(weapon: Weapon, delta: float) -> void:
+	var def := weapon.def()
+	weapon.orbit += delta * float(def.get("orbit_speed", 2.2))
+	weapon.aim = weapon.orbit + PI * 0.5
+	weapon.orbit_radius = float(def.get("orbit_radius", 110.0)) * stats.range_multiplier()
+	weapon.timer -= delta
+	if weapon.timer > 0.0: return
+	var spot: Vector2 = player.position + Vector2.RIGHT.rotated(weapon.orbit) * weapon.orbit_radius
+	var hit := float(def.get("orbit_hit", 34.0))
+	var struck := false
+	for node in actors.get_children():
+		var enemy := node as Enemy
+		if enemy == null or not enemy.alive: continue
+		if enemy.position.distance_to(spot) > hit + enemy.radius: continue
+		var crit := stats.roll_crit(rng)
+		enemy.take_damage(weapon.damage(stats) * crit, crit > 1.0)
+		struck = true
+	if struck:
+		weapon.timer = weapon.cooldown(stats)
+		weapon.flash = 0.09
+		audio.play("hit", -16.0)
+
+func fire_shots(weapon: Weapon, target: Enemy, reach: float) -> void:
 	var def := weapon.def()
 	var damage := weapon.damage(stats)
 	var direction: Vector2 = (target.position - player.position).normalized()
@@ -360,14 +437,17 @@ func fire(weapon: Weapon, target: Enemy, reach: float) -> void:
 		if shots_fired > 1: offset = lerpf(-spread, spread, float(i) / float(shots_fired - 1))
 		elif spread > 0.0: offset = rng.randf_range(-spread, spread)
 		var crit := stats.roll_crit(rng)
-		add_shot(direction.rotated(offset), bullet_speed, life, damage * crit, def.color, int(def.pierce), crit > 1.0)
+		var shot := add_shot(direction.rotated(offset), bullet_speed, life, damage * crit, def.color, int(def.pierce), crit > 1.0)
+		var homing := float(def.get("homing", 0.0))
+		if homing > 0.0: shot.chase(target, homing)
 	audio.play("shoot_%s" % def.get("sound", "light"), -13.0 if weapon.cooldown(stats) < 0.25 else -6.0)
 
-func add_shot(direction: Vector2, speed: float, life: float, damage: float, color: Color, pierce: int, is_crit: bool = false) -> void:
+func add_shot(direction: Vector2, speed: float, life: float, damage: float, color: Color, pierce: int, is_crit: bool = false) -> Projectile:
 	var shot: Projectile = SHOT_SCENE.instantiate()
 	shots.add_child(shot)
 	shot.launch(player.position, direction, speed, damage, life, color, pierce, false, is_crit)
 	shot.dealt_damage.connect(on_damage_dealt)
+	return shot
 
 func on_damage_dealt(amount: float) -> void:
 	var leech := stats.get_stat("lifesteal")

@@ -36,10 +36,14 @@ the glyph can be tinted in-game. No other modification is made.
 | `salvage_rig` (item) | lorc | cog |
 | `scrap_plate` (item) | badges | shield |
 | `war_drum` (item) | delapouite | drum |
+| `blade` (weapon) | lorc | broadsword |
+| `hammer` (weapon) | delapouite | thor-hammer |
 | `lance` (weapon) | lorc | trident |
+| `orb` (weapon) | lorc | orbital |
 | `pistol` (weapon) | john-colburn | pistol-gun |
 | `rifle` (weapon) | sbed | laser-gun |
 | `scatter` (weapon) | lorc | cannon |
+| `seeker` (weapon) | lorc | energy-arrow |
 | `shotgun` (weapon) | delapouite | sawed-off-shotgun |
 | `smg` (weapon) | skoll | machine-gun |
 | `wand` (weapon) | lorc | crystal-wand |
