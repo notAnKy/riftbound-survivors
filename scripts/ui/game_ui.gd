@@ -26,9 +26,14 @@ const SETTINGS_TOP := 380.0
 const PAUSE_TOP := 450.0
 const CONFIRM_TOP := 520.0
 
-const MENU_BUTTON := Vector2(440, 64)
-const MENU_TOP := 470.0
-const MENU_STEP := 84.0
+const MENU_BUTTON := Vector2(440, 58)
+const MENU_TOP := 404.0
+const MENU_STEP := 72.0
+# How much room the title screen needs under its last button for the coin line,
+# the prompts and the click hint. A test holds the whole menu plus this inside
+# the screen, because adding ACHIEVEMENTS as a sixth row is exactly what pushed
+# QUIT GAME on top of all three.
+const MENU_FOOTER := 126.0
 
 # Co-op gives each player half the display. The cards and slots keep their size
 # and wrap into a grid rather than shrinking -- that is the difference between a
@@ -391,18 +396,21 @@ const TITLE_COLORS := {
 
 func draw_title() -> void:
 	draw_menu_background()
-	heading(SCREEN.x * 0.5, 300, "RIFTBOUND", 68, Color("e8efff"))
-	heading(SCREEN.x * 0.5, 378, "SURVIVORS", 68, Color("ffcf77"))
-	text_centered(SCREEN.x * 0.5, 424, "An arcade survival run", 20, Color("aabce1"))
+	heading(SCREEN.x * 0.5, 246, "RIFTBOUND", 68, Color("e8efff"))
+	heading(SCREEN.x * 0.5, 322, "SURVIVORS", 68, Color("ffcf77"))
+	text_centered(SCREEN.x * 0.5, 366, "An arcade survival run", 20, Color("aabce1"))
 	# Drawn straight off menu_items, so a new entry cannot appear in one list and
 	# not the other.
 	var rows := game.menu_items()
 	for i in range(rows.size()):
 		draw_menu_button(menu_button_rect(i), TITLE_LABELS.get(rows[i], rows[i]),
 			rows[i], TITLE_COLORS.get(rows[i], Color("aabce1")))
-	text_centered(SCREEN.x * 0.5, 900, "COINS  %d" % game.profile.coins(), 20, Color("ffcf77"))
-	draw_hint_row(SCREEN.x * 0.5, 946, [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"]])
-	if not on_pad(): text_centered(SCREEN.x * 0.5, 1000, "or click  •  P  A  S  Q", 15, Color("8ea4cb"))
+	# Placed off the last button rather than at fixed pixels, so another menu row
+	# pushes the footer down instead of landing underneath it.
+	var bottom := menu_button_rect(rows.size() - 1).end.y
+	text_centered(SCREEN.x * 0.5, bottom + 34.0, "COINS  %d" % game.profile.coins(), 20, Color("ffcf77"))
+	draw_hint_row(SCREEN.x * 0.5, bottom + 78.0, [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"]])
+	if not on_pad(): text_centered(SCREEN.x * 0.5, bottom + 124.0, "or click  •  P  A  S  Q", 15, Color("8ea4cb"))
 
 # --- co-op lobby -------------------------------------------------------------
 

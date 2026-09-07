@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 346
+const EXPECTED_CHECKS := 348
 var checks := 0
 
 func _initialize() -> void:
@@ -639,6 +639,15 @@ func test_menu_navigation() -> void:
 	check("hovering moves the keyboard cursor onto that row (%d)" % game.menu_index, game.menu_index == full_row and game.menu_hover == "fullscreen")
 	game.sync_hover(Vector2(5, 5))
 	check("moving off the rows leaves the cursor where it was (%d)" % game.menu_index, game.menu_index == full_row and game.menu_hover == "")
+
+	# The title menu and its footer have to fit the screen. Adding a sixth row
+	# once pushed QUIT GAME straight over the coin line and the prompts, because
+	# the footer was placed at fixed pixels rather than under the last button.
+	game.state = "title"
+	var last: Rect2 = game.ui.menu_button_rect(game.menu_items().size() - 1)
+	check("the title menu and its footer fit on screen (%.0f + %.0f)" % [last.end.y, GameUI.MENU_FOOTER],
+		last.end.y + GameUI.MENU_FOOTER <= GameUI.SCREEN.y)
+	check("and the first row clears the title art (%.0f)" % last.position.y, GameUI.MENU_TOP > 380.0)
 
 	game.state = "paused"
 	press(game, KEY_ENTER)
