@@ -50,8 +50,18 @@ func _ready() -> void:
 	var shape: CollisionShape2D = $Magnet/Shape
 	shape.shape = shape.shape.duplicate()
 	refresh_pickup_radius()
-	# Set before the first anim tick, which captures whatever scale it finds.
-	($Sprite as Sprite2D).scale = Vector2.ONE * Balance.ACTOR_SCALE
+	set_art(null)
+
+# The character's own art, sized from the file's own width so a 32px sprite and
+# a 48px one end up the same size on screen. Passing null keeps whatever the
+# scene already had. Re-seeds the animation, which caches the base scale.
+func set_art(texture: Texture2D) -> void:
+	var sprite := $Sprite as Sprite2D
+	if texture != null: sprite.texture = texture
+	var width := Balance.SPRITE_BASE
+	if sprite.texture != null: width = float(sprite.texture.get_width())
+	sprite.scale = Vector2.ONE * Balance.ACTOR_SCALE * Balance.SPRITE_BASE / maxf(width, 1.0)
+	anim.begin(sprite, false)
 
 func refresh_pickup_radius() -> void:
 	($Magnet/Shape as CollisionShape2D).shape.radius = BASE_PICKUP_RADIUS + stats.get_stat("pickup_radius")

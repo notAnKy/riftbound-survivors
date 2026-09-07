@@ -91,3 +91,13 @@ the glyph can be tinted in-game. No other modification is made.
 - Note: that repository is a third-party aggregation. Its CC0 claim is only as
   good as the aggregator's diligence — verify each track at freesound.org
   before any commercial release.
+
+## Character art
+
+- `assets/sprites/char_*.png` — the six playable survivors, generated with
+  **PixelLab.ai** (`/v1/generate-image-pixflux`) from the prompts recorded in
+  `tests/generate_characters.sh`.
+- License: PixelLab's terms grant **commercial use of generated images** on a
+  paid or trial plan. That is a licence from a vendor rather than a public
+  licence like CC0, so it is worth re-reading their terms before a commercial
+  release — unlike the Kenney art, it cannot be verified from the file alone.

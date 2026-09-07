@@ -294,11 +294,14 @@ func apply_character(index: int = -1) -> void:
 		var character := CharacterCatalog.get_character(who.character)
 		rebuild_stats(false, who)
 		who.player.base_speed = float(character.speed)
-		# A full modulate drains the sprite art, so the character colour is only
-		# mixed in as a tint. The second seat is pushed warm so the two players
-		# can tell themselves apart in a crowd.
-		var shade: Color = character.color if who.seat == 0 else character.color.lerp(Color("ffcf77"), 0.6)
-		who.player.tint = Color.WHITE.lerp(shade, 0.35)
+		var art := "res://assets/sprites/%s.png" % String(character.get("texture", "player"))
+		if ResourceLoader.exists(art): who.player.set_art(load(art))
+		# Each character now carries its own colour in its own art, so seat 0 is
+		# left alone -- tinting a purple slime purple only muddies it. Seat 1 is
+		# still pushed warm, which is the one case where two players holding the
+		# same character have to be able to tell themselves apart in a crowd.
+		if who.seat == 0: who.player.tint = Color.WHITE
+		else: who.player.tint = Color.WHITE.lerp(character.color.lerp(Color("ffcf77"), 0.6), 0.45)
 		who.player.hp = who.player.max_hp
 		who.player.refresh_pickup_radius()
 

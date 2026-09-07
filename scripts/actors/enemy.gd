@@ -83,7 +83,13 @@ func configure(def: Dictionary, round_number: int, who: Array, boss: bool = fals
 		material_value *= Balance.ELITE_MATERIALS
 	var sprite := $Sprite as Sprite2D
 	sprite.texture = load("res://assets/sprites/%s.png" % def.texture)
-	sprite.scale = Vector2.ONE * float(def.scale) * Balance.ACTOR_SCALE * (Balance.ELITE_SCALE if is_elite else 1.0)
+	# Normalised by the texture's own width, so art at another resolution keeps
+	# the same on-screen size instead of needing its own scale in the catalog.
+	var art_width := Balance.SPRITE_BASE
+	if sprite.texture != null: art_width = float(sprite.texture.get_width())
+	sprite.scale = (Vector2.ONE * float(def.scale) * Balance.ACTOR_SCALE
+		* (Balance.SPRITE_BASE / maxf(art_width, 1.0))
+		* (Balance.ELITE_SCALE if is_elite else 1.0))
 	sprite.modulate = tint
 	anim.begin(sprite)
 	# A bloater breathes visibly, because it is the brute's sprite in another

@@ -63,6 +63,9 @@ var display: Font
 
 func _ready() -> void:
 	game = get_parent() as GameController
+	# Nearest, or the character art drawn on the picker screens goes soft the
+	# moment it is blown up -- the same reason every actor sprite sets it.
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	# Rajdhani for text, Orbitron for headings. The engine fallback font is
 	# what made every screen read as a prototype.
 	font = load("res://assets/fonts/Rajdhani-SemiBold.ttf") as Font
@@ -482,6 +485,7 @@ func draw_lobby_join(at_seat: int, box: Rect2, accent: Color) -> void:
 func draw_lobby_character(at_seat: int, box: Rect2) -> void:
 	var def := CharacterCatalog.get_character(int(game.lobby.character[at_seat]))
 	var centre := box.get_center().x
+	draw_character_art(Vector2(centre, box.position.y + 52.0), def, 96.0)
 	heading(centre, box.position.y + 116.0, String(def.name), 34, def.color)
 	text_centered(centre, box.position.y + 154.0, String(def.description), 17, Color("d1dcf5"))
 	text_centered(centre, box.position.y + 190.0, "HP %d   •   SPEED %d" % [int(def.hp), int(def.speed)],
@@ -493,6 +497,33 @@ func draw_lobby_character(at_seat: int, box: Rect2) -> void:
 	var perks := ItemCatalog.describe(def)
 	draw_wrapped(Vector2(box.position.x + 44.0, box.position.y + 268.0),
 		perks if perks != "" else "No stat modifiers", 16, Color("a9bbde"), box.size.x - 88.0)
+
+# Held for the life of the UI, and not merely as an optimisation.
+#
+# A texture loaded into a local inside _draw() is freed the moment the function
+# returns -- nothing else references it -- and the draw command that was queued
+# against it is left pointing at a released RID, which the renderer fills as a
+# solid white quad. The character art rendered as white boxes for exactly that
+# reason, while player.png in the same call drew correctly, because the Player
+# scene holds a reference to that one and keeps it alive.
+var art_cache := {}
+
+func character_art(def: Dictionary) -> Texture2D:
+	var id := String(def.get("texture", "player"))
+	if art_cache.has(id): return art_cache[id]
+	var path := "res://assets/sprites/%s.png" % id
+	var art: Texture2D = null
+	if ResourceLoader.exists(path): art = load(path) as Texture2D
+	art_cache[id] = art
+	return art
+
+# A character you cannot see is a row of statistics. Drawn from the catalog id
+# so a new character needs no second place to register its art.
+func draw_character_art(centre: Vector2, def: Dictionary, height: float) -> void:
+	var art := character_art(def)
+	if art == null: return
+	var size := Vector2(height, height)
+	draw_texture_rect(art, Rect2(centre - size * 0.5, size), false)
 
 func draw_lobby_weapon(at_seat: int, box: Rect2) -> void:
 	var def := GunCatalog.get_gun(int(game.lobby.gun[at_seat]))
@@ -539,14 +570,15 @@ func draw_armory() -> void:
 	var character := CharacterCatalog.get_character(game.selected_character)
 	var panel := Rect2((SCREEN.x - 1000.0) * 0.5, 580, 1000, 150)
 	draw_panel(panel, Color("182441"), character.color)
-	text_at(panel.position + Vector2(40, 52), "C  %s" % character.name, 24, character.color)
-	text_at(panel.position + Vector2(40, 90), "%s  •  HP %d  •  SPEED %d" % [character.description, character.hp, character.speed], 17, Color("d1dcf5"))
+	draw_character_art(Vector2(panel.position.x + 78.0, panel.get_center().y), character, 104.0)
+	text_at(panel.position + Vector2(150, 52), "C  %s" % character.name, 24, character.color)
+	text_at(panel.position + Vector2(150, 90), "%s  •  HP %d  •  SPEED %d" % [character.description, character.hp, character.speed], 17, Color("d1dcf5"))
 	var perks := ItemCatalog.describe(character)
 	var kinds: Array = character.get("kinds", [])
 	var shape := "%d weapon slots" % int(character.get("slots", 6))
 	if not kinds.is_empty(): shape += "  •  %s weapons only" % String(kinds[0]).to_upper()
-	text_at(panel.position + Vector2(40, 122), shape, 15, Color("ffcf77"))
-	text_at(panel.position + Vector2(320, 122), perks if perks != "" else "No stat modifiers", 15, Color("9fb3d9"))
+	text_at(panel.position + Vector2(150, 122), shape, 15, Color("ffcf77"))
+	text_at(panel.position + Vector2(430, 122), perks if perks != "" else "No stat modifiers", 15, Color("9fb3d9"))
 	# What to go and do, rather than a price: characters are earned now.
 	var earned := game.profile.is_character_unlocked(game.selected_character)
 	var opener := AchievementCatalog.unlocker_for(game.selected_character)

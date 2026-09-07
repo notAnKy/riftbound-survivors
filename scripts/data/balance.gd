@@ -97,6 +97,11 @@ const REVIVE_HP := 0.5
 # scattered props are the same 16px and were exactly as visually loud as the
 # things that kill you. This is one number so the actors and the decoration can
 # never drift back into the same size again.
+# The file width every other sprite is measured against. The art is not all one
+# resolution -- the Kenney tiles are 48px files and the generated characters are
+# 32px -- so an actor's scale is derived from its own texture rather than being
+# a magic number per sprite, and new art of any size lands the right size.
+const SPRITE_BASE := 48.0
 const ACTOR_SCALE := 1.7
 const BLOAT_FUSE := 0.45
 const COOP_ENEMY_HP := 0.45
