@@ -1,7 +1,13 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/actors/player.gd" id="1_player"]
 [ext_resource type="Texture2D" path="res://assets/sprites/player.png" id="2_tex"]
+[ext_resource type="Shader" path="res://assets/shaders/outline.gdshader" id="3_outline"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_outline"]
+shader = ExtResource("3_outline")
+shader_parameter/outline_color = Color(0.04, 0.035, 0.07, 1)
+shader_parameter/width = 2.8
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_body"]
 radius = 13.0
@@ -15,6 +21,7 @@ collision_mask = 1
 script = ExtResource("1_player")
 
 [node name="Sprite" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_outline")
 texture = ExtResource("2_tex")
 
 [node name="Body" type="CollisionShape2D" parent="."]

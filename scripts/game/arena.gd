@@ -16,10 +16,13 @@ const WALL_THICKNESS := 60.0
 # actors -- so the arena reads as a place without changing how it plays.
 # Each prop carries its own tint: the crates sit back in the palette, and the
 # growth is pushed to teal so it reads as rift bloom rather than shrubbery.
+# Heavily muted on purpose. These are ground texture, not objects: anything on
+# the floor as saturated as an enemy is competing with the one thing the player
+# actually has to look at. Brotato's floor is nearly flat grey for this reason.
 const PROPS := [
-	{"texture": "prop_crate", "tint": Color(0.70, 0.66, 0.72, 0.85)},
-	{"texture": "prop_barrel", "tint": Color(0.80, 0.62, 0.52, 0.85)},
-	{"texture": "prop_growth", "tint": Color(0.38, 0.95, 0.88, 0.75)},
+	{"texture": "prop_crate", "tint": Color(0.40, 0.39, 0.42, 0.62)},
+	{"texture": "prop_barrel", "tint": Color(0.44, 0.39, 0.36, 0.62)},
+	{"texture": "prop_growth", "tint": Color(0.34, 0.42, 0.40, 0.55)},
 ]
 const PROP_COUNT := 18
 const PROP_SEED := 20260906
@@ -35,8 +38,27 @@ func _ready() -> void:
 	var accent := $Accent as Sprite2D
 	accent.position = BOUNDS.position
 	accent.region_rect = Rect2(Vector2.ZERO, BOUNDS.size)
+	flatten_floor()
 	build_walls()
 	scatter_props()
+
+# A flat wash over the tiling.
+#
+# The floor texture repeats visibly, and a grid of squares behind the actors is
+# competing with the only thing on screen the player has to read. Brotato's
+# ground is close to a flat tone for exactly this reason. This keeps enough of
+# the texture through it to stop the floor looking like a solid fill, and no
+# more than that.
+func flatten_floor() -> void:
+	var wash := ColorRect.new()
+	wash.name = "Wash"
+	wash.color = Color(0.125, 0.135, 0.168, 0.84)
+	wash.position = BOUNDS.position
+	wash.size = BOUNDS.size
+	wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(wash)
+	# Above the floor and its accent, below the border and everything else.
+	move_child(wash, 2)
 
 func build_walls() -> void:
 	var walls := StaticBody2D.new()
@@ -87,10 +109,10 @@ func _draw() -> void:
 	# and gives the dark edges somewhere to go.
 	# Drawn well past the screen: the session is scaled down to fit the arena, so
 	# a rect the size of the screen in world units no longer reaches its edges.
-	draw_rect(Rect2(-600, -600, GameUI.SCREEN.x + 1200, GameUI.SCREEN.y + 1200), Color("0a0e1f"))
+	draw_rect(Rect2(-600, -600, GameUI.SCREEN.x + 1200, GameUI.SCREEN.y + 1200), Color("0c0d12"))
 	var centre := BOUNDS.get_center()
 	for i in range(7):
 		var t := float(i) / 6.0
 		# Proportional to the arena, so the glow keeps its shape as it grows.
 		var radius: float = BOUNDS.size.x * (0.34 + t * 0.49)
-		draw_circle(centre, radius, Color(0.16, 0.20, 0.42, 0.055 * (1.0 - t)))
+		draw_circle(centre, radius, Color(0.22, 0.23, 0.30, 0.05 * (1.0 - t)))

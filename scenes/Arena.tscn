@@ -9,7 +9,7 @@
 script = ExtResource("1_arena")
 
 [node name="Floor" type="Sprite2D" parent="."]
-modulate = Color(0.5, 0.56, 0.78, 1)
+modulate = Color(0.60, 0.61, 0.66, 1)
 texture_repeat = 2
 position = Vector2(40, 120)
 centered = false
@@ -18,7 +18,7 @@ region_enabled = true
 region_rect = Rect2(0, 0, 1840, 890)
 
 [node name="Accent" type="Sprite2D" parent="."]
-modulate = Color(0.40, 0.60, 0.95, 0.15)
+modulate = Color(0.78, 0.80, 0.88, 0.05)
 texture_repeat = 2
 position = Vector2(40, 120)
 scale = Vector2(2.5, 2.5)
