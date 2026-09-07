@@ -165,6 +165,12 @@ func button_top() -> float:
 
 # The right end of a weapon slot. The rest of the slot still sells, so the two
 # actions never share a pixel.
+# The pin chip, in the bottom-right of an offer card. The rest of the card
+# still buys, so the two actions never share a pixel.
+func card_lock_rect(index: int) -> Rect2:
+	var rect := card_rect(index)
+	return Rect2(rect.end.x - 86.0, rect.end.y - 42.0, 74.0, 30.0)
+
 func slot_combine_rect(index: int) -> Rect2:
 	var rect := slot_rect(index)
 	return Rect2(rect.end.x - 86.0, rect.position.y + 16.0, 78.0, 30.0)
@@ -254,6 +260,10 @@ func menu_action_at(point: Vector2) -> String:
 			if upgrade_rect(i, 0).has_point(point): return "upgrade_%d" % i
 	elif game.state == "shop":
 		for i in range(SHOP_CARDS):
+			# Tested first: the chip sits inside the card, and the card buys.
+			var board := game.session.seat(0).shop
+			if card_lock_rect(i).has_point(point) and i < board.offers.size() and not board.offers[i].is_empty():
+				return "lock_%d" % i
 			if card_rect(i).has_point(point): return "buy_%d" % i
 		for i in range(game.session.seat(0).weapons.size()):
 			# Tested first: the chip sits inside the slot, and the slot sells.
@@ -678,9 +688,11 @@ func draw_offer_card(index: int, s: GameSession, who: Survivor, at_seat: int) ->
 		return
 	var affordable: bool = who.materials >= int(offer.price)
 	var hovered := is_focused("buy_%d" % index, at_seat)
+	var pinned: bool = who.shop.is_locked(index)
 	var edge: Color = offer.color if affordable else Color("54617d")
-	draw_panel(rect, Color(0.12,0.16,0.28,0.95) if hovered else Color("151d35"), edge, 3.0 if hovered else 2.0)
-	text_at(rect.position + Vector2(20, 38), "WEAPON" if offer.kind == "weapon" else "ITEM", 13, Color("8ea4cb"))
+	if pinned: edge = Color("ffe09b")
+	draw_panel(rect, Color(0.12,0.16,0.28,0.95) if hovered else Color("151d35"), edge, 3.0 if (hovered or pinned) else 2.0)
+	text_at(rect.position + Vector2(20, 38), "%s  (%d)" % ["WEAPON" if offer.kind == "weapon" else "ITEM", index + 1], 13, Color("8ea4cb"))
 	if offer.kind == "weapon": Icons.weapon(self, String(offer.id), rect.position + Vector2(rect.size.x - 52, 56), 30.0, edge)
 	else: Icons.item(self, String(offer.id), rect.position + Vector2(rect.size.x - 52, 56), 26.0, edge)
 	text_at(rect.position + Vector2(20, 74), String(offer.name), 21, edge)
@@ -691,7 +703,7 @@ func draw_offer_card(index: int, s: GameSession, who: Survivor, at_seat: int) ->
 		draw_class_chips(rect.position + Vector2(20, 156), def.get("classes", []), s, who)
 		text_at(rect.position + Vector2(20, 192), "%.0f dps  •  %d range  •  %s" % [dps, int(def.range), String(def.kind).to_upper()], 14, Color("9fb3d9"))
 	text_at(rect.position + Vector2(20, 226), "%d MATERIALS" % int(offer.price), 18, Color("8cffd1") if affordable else Color("ff718b"))
-	text_right(rect.end.x - 18, rect.position.y + 226, "(%d)" % (index + 1), 15, Color("ffe09b"))
+	draw_lock_chip(card_lock_rect(index), pinned, is_focused("lock_%d" % index, at_seat))
 
 # A chip per weapon class, brightened when that class is already contributing
 # a set bonus, so the shop shows what a purchase would build toward.
@@ -767,6 +779,24 @@ func draw_weapon_slots(s: GameSession, who: Survivor, at_seat: int) -> void:
 
 # Drawn on any weapon that has a twin in the rack rather than only on hover:
 # a duplicate is an opportunity, and it should be visible before you go looking.
+# A pinned offer survives a reroll. Drawn on every card rather than on hover,
+# because a reroll you cannot see the cost of is a gamble either way.
+func draw_lock_chip(rect: Rect2, pinned: bool, focused: bool) -> void:
+	var accent := Color("ffe09b") if pinned else Color("6d84b4")
+	draw_panel(rect, Color(accent.r, accent.g, accent.b, 0.22) if (pinned or focused) else Color(0.08, 0.11, 0.20, 0.9),
+		accent, 2.0 if focused else 1.0)
+	draw_padlock(Vector2(rect.position.x + 17.0, rect.get_center().y), 13.0, pinned, accent)
+	text_at(Vector2(rect.position.x + 30.0, rect.get_center().y + 5.0), "KEEP" if pinned else "PIN", 12, accent)
+
+# Neither bundled font has a padlock, so it is drawn: a shut one sits closed on
+# the body, an open one is lifted and tilted off it.
+func draw_padlock(centre: Vector2, size: float, shut: bool, tint: Color) -> void:
+	var body := Rect2(centre.x - size * 0.42, centre.y - size * 0.08, size * 0.84, size * 0.56)
+	draw_rect(body, tint, shut)
+	if not shut: draw_rect(body, tint, false, 1.3)
+	var shackle := Vector2(centre.x + (0.0 if shut else size * 0.22), body.position.y - (0.0 if shut else size * 0.14))
+	draw_arc(shackle, size * 0.27, PI, TAU, 12, tint, 1.6)
+
 func draw_combine_chip(rect: Rect2, focused: bool) -> void:
 	var accent := Color("ffe09b")
 	draw_panel(rect, Color(accent.r, accent.g, accent.b, 0.22) if focused else Color(0.10, 0.14, 0.25, 0.95), accent, 2.0 if focused else 1.0)

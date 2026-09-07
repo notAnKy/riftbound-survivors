@@ -253,11 +253,11 @@ func revive(who: Survivor) -> void:
 	# play is to throw yourself at the crowd and wait for the round to tick over.
 	who.player.hp = who.player.max_hp * Balance.REVIVE_HP
 	who.player.position = Arena.BOUNDS.get_center()
-	audio.play("heal", 3.0)
+	audio.play("heal", 2.0)
 
 func on_player_hit() -> void:
 	add_shake(Balance.SHAKE_PLAYER_HIT)
-	audio.play("player_hurt", 2.0)
+	audio.play("player_hurt")
 
 # With no argument every survivor keeps the character it was built with, which
 # is what co-op needs -- the two seats picked separately. Solo passes the one
@@ -296,7 +296,7 @@ func tick(delta: float) -> void:
 	if round_phase == "cleanup" and actors.get_child_count() == 0:
 		if round_number >= Balance.FINAL_WAVE:
 			round_phase = "won"
-			audio.play("victory", 2.0)
+			audio.play("victory")
 			run_won.emit()
 		else:
 			finish_wave()
@@ -343,7 +343,7 @@ func begin_round() -> void:
 	if round_number % 5 == 0:
 		var top := Vector2(Arena.BOUNDS.get_center().x, Arena.BOUNDS.position.y + 70.0)
 		spawn_enemy(EnemyCatalog.boss(round_number), top, true)
-		audio.play("boom", 3.0)
+		audio.play("boom")
 
 # Surviving a wave pays back part of the bar. Once per wave and capped at max
 # HP, so unlike the per-kill heal it cannot be farmed -- and it is what stops a
@@ -357,6 +357,11 @@ func heal_between_waves() -> void:
 		who.player.heal(flat + missing)
 
 # --- shop transactions -------------------------------------------------------
+
+func toggle_lock(index: int, at_seat: int = 0) -> bool:
+	if not seat(at_seat).shop.toggle_lock(index): return false
+	audio.play("ui_click")
+	return true
 
 func offer_affordable(index: int, at_seat: int = 0) -> bool:
 	var who := seat(at_seat)
@@ -385,6 +390,8 @@ func reroll_shop(at_seat: int = 0) -> bool:
 	var who := seat(at_seat)
 	var cost := who.shop.reroll_cost()
 	if who.materials < cost: return false
+	# Paying to respin a board that is entirely pinned changes nothing.
+	if not who.shop.has_unlocked_offer(): return false
 	who.materials -= cost
 	who.shop.owned_classes = class_counts(who).keys()
 	who.shop.owned_items = who.items.size()
@@ -445,7 +452,7 @@ func combine_weapon(index: int, at_seat: int = 0) -> bool:
 	# Weapon count feeds the class bonuses and every per-weapon item, and it just
 	# went down by one, so the whole sheet has to be recomputed.
 	rebuild_stats(false, who)
-	audio.play("merge", 2.0)
+	audio.play("merge")
 	return true
 
 func add_item(id: String, who: Survivor = null) -> void:
@@ -568,7 +575,7 @@ func spawn_enemy(def: Dictionary, at: Vector2, is_boss: bool, is_elite: bool = f
 	return enemy
 
 func on_enemy_damaged(at: Vector2, amount: float, crit: bool) -> void:
-	audio.play("crit" if crit else "hit", -6.0 if crit else -15.0)
+	audio.play("crit" if crit else "hit")
 	if numbers.get_child_count() >= MAX_NUMBERS: return
 	var number: DamageNumber = NUMBER_SCENE.instantiate()
 	number.setup(at, amount, crit)
@@ -662,7 +669,7 @@ func swing_melee(who: Survivor, weapon: Weapon, target: Enemy, reach: float) -> 
 	swing.position = player.position
 	swing.setup(facing.angle(), arc, reach, def.color)
 	add_child(swing)
-	audio.play("shoot_%s" % def.get("sound", "medium"), -7.0)
+	audio.play("shoot_%s" % def.get("sound", "medium"))
 
 # Circles the player and damages whatever it passes over, on its own cooldown
 # so it grinds rather than deleting a crowd on contact.
@@ -688,7 +695,7 @@ func tick_orbital(who: Survivor, weapon: Weapon, delta: float) -> void:
 	if struck:
 		weapon.timer = weapon.cooldown(stats)
 		weapon.flash = 0.09
-		audio.play("hit", -16.0)
+		audio.play("hit")
 
 func fire_shots(who: Survivor, weapon: Weapon, target: Enemy, reach: float) -> void:
 	var player: Player = who.player
@@ -710,7 +717,7 @@ func fire_shots(who: Survivor, weapon: Weapon, target: Enemy, reach: float) -> v
 		var shot := add_shot(who, direction.rotated(offset), bullet_speed, life, damage * crit, def.color, int(def.pierce), crit > 1.0)
 		var homing := float(def.get("homing", 0.0))
 		if homing > 0.0: shot.chase(target, homing)
-	audio.play("shoot_%s" % def.get("sound", "light"), -13.0 if weapon.cooldown(stats) < 0.25 else -6.0)
+	audio.play("shoot_%s" % def.get("sound", "light"), -5.0 if weapon.cooldown(stats) < 0.25 else 0.0)
 
 func add_shot(who: Survivor, direction: Vector2, speed: float, life: float, damage: float, color: Color, pierce: int, is_crit: bool = false) -> Projectile:
 	var shot: Projectile = SHOT_SCENE.instantiate()
@@ -741,7 +748,7 @@ func on_enemy_died(at: Vector2, material_value: int, was_boss: bool, definition:
 	kills += 1
 	if definition.has("explodes"): explode(at, definition.explodes)
 	if definition.has("splits"): split(at, definition.splits)
-	audio.play("kill", -3.0)
+	audio.play("kill")
 	if was_boss:
 		add_shake(Balance.SHAKE_BOSS_DEATH)
 		hit_stop(Balance.HITSTOP_BOSS_DEATH)
@@ -768,7 +775,7 @@ func explode(at: Vector2, spec: Dictionary) -> void:
 	blast.tint = Color(1.0, 0.55, 0.3)
 	add_child(blast)
 	add_shake(Balance.SHAKE_NOVA * 0.5)
-	audio.play("boom", -4.0)
+	audio.play("boom", -6.0)
 	for who in living():
 		if who.player.position.distance_to(at) <= radius:
 			who.player.hurt(float(spec.get("damage", 25.0)))
@@ -818,16 +825,16 @@ func on_pickup_collected(value: int, kind: String = Pickup.KIND_MATERIAL, who: S
 	if owner == null: return
 	if kind == Pickup.KIND_HEALTH:
 		if is_instance_valid(owner.player): owner.player.heal(float(value))
-		audio.play("heal", 2.0)
+		audio.play("heal")
 		return
 	owner.materials += value
 	owner.xp += value
-	audio.play("pickup", -9.0)
+	audio.play("pickup")
 	if owner.xp >= owner.xp_to_next:
 		owner.xp -= owner.xp_to_next
 		owner.level += 1
 		owner.xp_to_next = Balance.next_level_xp(owner.xp_to_next)
-		audio.play("level_up", 2.0)
+		audio.play("level_up")
 		owner.upgrades = UpgradeCatalog.roll_choices(rng, round_number, owner.stats.get_stat("luck"))
 		level_up_requested.emit()
 
@@ -877,4 +884,4 @@ func rift_nova(at_seat: int = 0) -> void:
 	who.nova_cooldown = Balance.NOVA_COOLDOWN
 	add_shake(Balance.SHAKE_NOVA)
 	hit_stop(Balance.HITSTOP_NOVA)
-	audio.play("nova", 3.0)
+	audio.play("nova")

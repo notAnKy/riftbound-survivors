@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 310
+const EXPECTED_CHECKS := 320
 var checks := 0
 
 func _initialize() -> void:
@@ -48,6 +48,7 @@ func bootstrap() -> void:
 	await test_shop_buying()
 	await test_weapon_combining()
 	await test_combine_in_the_shop()
+	await test_pinning_an_offer()
 	await test_coop_lobby()
 	await test_coop_two_players()
 	await test_coop_movement()
@@ -164,12 +165,17 @@ func test_shot_kills_and_drops() -> void:
 		s.pickups.remove_child(pickup)
 		pickup.queue_free()
 	var target = s.spawn_enemy(EnemyCatalog.all()[0], s.player.position + Vector2(150, 0), false)
+	# A wave-1 husk has 19hp and stands in front of the player's own auto-fire
+	# for the twenty frames below, so it could die before the assertion reads it
+	# and leave the next line on a freed node. This test kills it deliberately.
+	target.max_hp = 1000000.0
+	target.hp = target.max_hp
 	await step(1)
 	var before: float = target.hp
 	s.add_shot(s.me, Vector2.RIGHT, 900.0, 1.0, 5.0, Color.WHITE, 0)
 	await step(20)
 	check("a projectile damages what it hits (%.0f -> %.0f)" % [before, target.hp], is_instance_valid(target) and target.hp < before)
-	target.take_damage(99999.0)
+	target.take_damage(target.max_hp * 2.0)
 	await step(2)
 	check("a killed enemy leaves the field", not is_instance_valid(target))
 	var materials_dropped := 0
@@ -1090,6 +1096,46 @@ func test_slider_sweeping() -> void:
 	await step(2)
 	check("and it is flushed once the sweep ends (%.2f)" % game.profile.level("sfx_volume"),
 		not game.slider_dirty and absf(game.profile.level("sfx_volume") - game.audio.volume) < 0.01)
+	game.free()
+
+# A pinned offer survives a reroll, which is what makes rerolling a decision
+# rather than a gamble on losing the one good thing on the board.
+func test_pinning_an_offer() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	s.finish_wave()
+	game.state = "shop"
+	s.materials = 100000
+	var board: Shop = s.shop
+	check("nothing is pinned on a fresh board", not board.is_locked(0) and board.has_unlocked_offer())
+	var kept: String = String(board.offers[1].id)
+	check("the chip hit-tests inside its own card (%s)" % game.ui.menu_action_at(game.ui.card_lock_rect(1).get_center()),
+		game.ui.menu_action_at(game.ui.card_lock_rect(1).get_center()) == "lock_1")
+	check("and the rest of the card still buys",
+		game.ui.menu_action_at(game.ui.card_rect(1).position + Vector2(30, 60)) == "buy_1")
+
+	click(game, game.ui.card_lock_rect(1).get_center())
+	check("clicking it pins that offer", board.is_locked(1))
+	var changed := 0
+	for i in range(6):
+		s.reroll_shop(0)
+		if String(board.offers[1].id) != kept: changed += 1
+	check("a pinned offer survives every reroll (%d changes in 6)" % changed, changed == 0)
+	check("while the others are replaced", not board.offers[0].is_empty())
+
+	# and it is reachable without a mouse
+	check("pinning is in the navigable list", game.menu_items().has("lock_1"))
+	# pinning the whole board and paying to respin it changes nothing, so it is
+	# refused rather than quietly taking the materials
+	for i in range(Shop.SLOTS): board.locked[i] = true
+	check("a fully pinned board cannot be rerolled", not board.has_unlocked_offer() and not s.reroll_shop(0))
+	# buying a pinned offer releases the pin, or the empty slot would persist
+	board.locked[1] = true
+	s.buy(1, 0)
+	check("buying a pinned offer releases it", not board.is_locked(1))
+	# a new wave is a new decision
+	s.finish_wave()
+	check("and a new wave clears every pin", not board.is_locked(0) and board.has_unlocked_offer())
 	game.free()
 
 # --- co-op: two players, one arena -------------------------------------------

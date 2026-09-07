@@ -208,7 +208,11 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 			if session == null: return items
 			# In drawing order, which is what makes left and right feel like
 			# they move across the screen rather than through a list.
-			for i in range(GameUI.SHOP_CARDS): items.append("buy_%d" % i)
+			for i in range(GameUI.SHOP_CARDS):
+				items.append("buy_%d" % i)
+				# The pin sits inside its own card, so it belongs beside it.
+				if session.seat(at_seat).shop.is_locked(i) or not offer_empty(session.seat(at_seat).shop, i):
+					items.append("lock_%d" % i)
 			items.append("reroll")
 			items.append("go")
 			if session.seat(at_seat) == null: return items
@@ -220,6 +224,10 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 # The shop is drawn as three bands -- the offers, the two buttons, then the
 # weapon slots -- so up and down move between them rather than crawling the
 # whole list one card at a time.
+# A sold slot has nothing to pin.
+func offer_empty(board: Shop, index: int) -> bool:
+	return index >= board.offers.size() or board.offers[index].is_empty()
+
 func menu_groups(at_seat: int = 0) -> Array:
 	if state != "shop": return []
 	var offers: Array[int] = []
@@ -227,7 +235,7 @@ func menu_groups(at_seat: int = 0) -> Array:
 	var slots: Array[int] = []
 	var items := menu_items(at_seat)
 	for i in range(items.size()):
-		if items[i].begins_with("buy_"): offers.append(i)
+		if items[i].begins_with("buy_") or items[i].begins_with("lock_"): offers.append(i)
 		elif items[i].begins_with("sell_") or items[i].begins_with("combine_"): slots.append(i)
 		else: buttons.append(i)
 	var groups: Array = []
@@ -238,7 +246,7 @@ func menu_groups(at_seat: int = 0) -> Array:
 func move_menu(step: int, at_seat: int = 0) -> void:
 	var items := menu_items(at_seat)
 	if items.is_empty(): return
-	audio.play("ui_move", -5.0)
+	audio.play("ui_move")
 	set_cursor(at_seat, wrapi(cursor(at_seat) + step, 0, items.size()))
 
 func focused_action(at_seat: int = 0) -> String:
@@ -262,7 +270,7 @@ func jump_group(step: int, at_seat: int = 0) -> void:
 			here = g
 			column = found
 	var target: Array = groups[wrapi(here + step, 0, groups.size())]
-	audio.play("ui_move", -5.0)
+	audio.play("ui_move")
 	set_cursor(at_seat, int(target[mini(column, target.size() - 1)]))
 
 # One directional press, resolved against the way this screen is laid out.
@@ -282,7 +290,7 @@ func move_focus(step: int, vertical: bool, at_seat: int = 0) -> void:
 	else: move_menu(step, at_seat)
 
 func activate_menu(at_seat: int = 0) -> void:
-	audio.play("ui_click", -2.0)
+	audio.play("ui_click")
 	var items := menu_items(at_seat)
 	var index := cursor(at_seat)
 	if index >= 0 and index < items.size():
@@ -307,7 +315,7 @@ func poll_lobby(delta: float) -> void:
 		elif Gamepad.connected(): held = Input.is_joy_button_pressed(0, Gamepad.CROSS)
 		if lobby.tick_join(i, delta, held):
 			input_device = "keyboard" if i == 0 else "pad"
-			audio.play("ui_click", 0.0)
+			audio.play("ui_click")
 
 # The lobby is not a list: each seat steers its own row, and nobody moves on
 # until every seat has locked its pick.
@@ -322,16 +330,16 @@ func lobby_verb(verb: String, at_seat: int) -> bool:
 	match verb:
 		"nav_left", "nav_up":
 			lobby.move(at_seat, -1)
-			audio.play("ui_move", -5.0)
+			audio.play("ui_move")
 			return true
 		"nav_right", "nav_down":
 			lobby.move(at_seat, 1)
-			audio.play("ui_move", -5.0)
+			audio.play("ui_move")
 			return true
 		"confirm":
 			if not lobby.locked[at_seat]:
 				lobby.locked[at_seat] = true
-				audio.play("ui_click", -2.0)
+				audio.play("ui_click")
 			advance_lobby()
 			return true
 		"back":
@@ -422,6 +430,9 @@ func handle_menu_action(action: String, at_seat: int = 0) -> void:
 		session.sell_weapon(int(action.trim_prefix("sell_")), at_seat)
 		clamp_focus(at_seat)
 		return
+	if action.begins_with("lock_"):
+		session.toggle_lock(int(action.trim_prefix("lock_")), at_seat)
+		return
 	if action.begins_with("combine_"):
 		session.combine_weapon(int(action.trim_prefix("combine_")), at_seat)
 		clamp_focus(at_seat)
@@ -470,11 +481,11 @@ func clamp_focus(at_seat: int = 0) -> void:
 
 func cycle_character(step: int) -> void:
 	selected_character = wrapi(selected_character + step, 0, CharacterCatalog.all().size())
-	audio.play("ui_move", -5.0)
+	audio.play("ui_move")
 
 func cycle_gun(step: int) -> void:
 	selected_gun = wrapi(selected_gun + step, 0, GunCatalog.all().size())
-	audio.play("ui_move", -5.0)
+	audio.play("ui_move")
 
 func leave_back() -> void:
 	if state == "settings" or state == "settings_pause": leave_settings()
@@ -502,7 +513,7 @@ func set_slider(action: String, value: float) -> void:
 		# change in level.
 		if absf(level - slider_tick) >= 0.05:
 			slider_tick = level
-			audio.play("ui_move", -4.0)
+			audio.play("ui_move")
 		profile.set_level("sfx_volume", level, false)
 	else:
 		audio.set_music_volume(level)

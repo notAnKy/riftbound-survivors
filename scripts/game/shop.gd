@@ -23,6 +23,11 @@ var owned_classes: Array = []
 var round_number := 1
 # How many items the buyer already holds, which makes the next one dearer.
 var owned_items := 0
+# Offers the player has pinned. A locked offer survives a reroll, which is what
+# turns rerolling from a gamble into a decision: keep the one thing worth having
+# and spin the rest. Untyped, because it is reassigned from a plain literal and
+# a typed Array[bool] refuses one at runtime.
+var locked: Array = [false, false, false, false]
 
 # Compounding, so prices keep pace with an income that grows with the enemy
 # count rather than with the wave number.
@@ -37,7 +42,27 @@ func reroll_cost() -> int:
 func open(rng: RandomNumberGenerator, wave: int, luck: float) -> void:
 	rerolls = 0
 	round_number = wave
+	# A pin is for this board only; a new wave is a new decision.
+	locked = [false, false, false, false]
 	roll(rng, wave, luck)
+
+func is_locked(index: int) -> bool:
+	if index < 0 or index >= SLOTS: return false
+	if index >= offers.size() or offers[index].is_empty(): return false
+	return bool(locked[index])
+
+func toggle_lock(index: int) -> bool:
+	if index < 0 or index >= SLOTS: return false
+	if index >= offers.size() or offers[index].is_empty(): return false
+	locked[index] = not bool(locked[index])
+	return true
+
+# Whether a reroll would change anything. Pinning the whole board and then
+# paying to respin it is a trap, so the caller refuses instead.
+func has_unlocked_offer() -> bool:
+	for i in range(SLOTS):
+		if not is_locked(i): return true
+	return false
 
 func reroll(rng: RandomNumberGenerator, wave: int, luck: float) -> void:
 	rerolls += 1
@@ -46,8 +71,15 @@ func reroll(rng: RandomNumberGenerator, wave: int, luck: float) -> void:
 
 func roll(rng: RandomNumberGenerator, wave: int, luck: float) -> void:
 	round_number = wave
+	# Pinned offers are carried across untouched; everything else is replaced.
+	var kept: Array[Dictionary] = []
+	for i in range(SLOTS):
+		kept.append(offers[i] if is_locked(i) else {})
 	offers.clear()
 	for i in range(SLOTS):
+		if not kept[i].is_empty():
+			offers.append(kept[i])
+			continue
 		var offer := make_offer(rng, round_number, luck)
 		# The same item twice on one board reads as a bug. Retry a few times
 		# rather than looping, since the pool is small in the early rounds and
@@ -64,6 +96,8 @@ func take(index: int) -> Dictionary:
 	var offer: Dictionary = offers[index]
 	if offer.is_empty(): return {}
 	offers[index] = {}
+	# A bought offer cannot stay pinned, or the empty slot would survive rerolls.
+	locked[index] = false
 	return offer
 
 func make_offer(rng: RandomNumberGenerator, round_number: int, luck: float) -> Dictionary:
