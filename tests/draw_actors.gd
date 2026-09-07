@@ -168,8 +168,36 @@ static func props() -> Dictionary:
 			+ "<path d='M72,44 L82,68 L76,86 L64,86 L68,64 Z' fill='#5a4e7a' %s/></svg>") % [VIEW, thin, thin],
 	}
 
+# The ground, as two seamless 128px tiles laid over each other at different
+# scales -- the second one is what stops the repeat reading as a grid.
+#
+# Seamless by construction: nothing here crosses a tile edge, so the pattern
+# meets itself cleanly whatever `texture_repeat` does with it. And no outline.
+# A heavy outline is what makes something read as an *object* in this game; the
+# floor has to stay underneath that and never compete with an actor for the eye.
+static func floors() -> Dictionary:
+	return {
+		"floor": ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128' width='128' height='128'>"
+			+ "<rect x='0' y='0' width='128' height='128' fill='#43302c'/>"
+			+ "<rect x='14' y='14' width='36' height='36' rx='9' fill='#4b3630'/>"
+			+ "<rect x='78' y='14' width='36' height='36' rx='9' fill='#3d2b28'/>"
+			+ "<rect x='14' y='78' width='36' height='36' rx='9' fill='#3d2b28'/>"
+			+ "<rect x='78' y='78' width='36' height='36' rx='9' fill='#4b3630'/></svg>"),
+		"floor_accent": ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128' width='128' height='128'>"
+			+ "<ellipse cx='40' cy='34' rx='22' ry='15' fill='#ffffff' opacity='0.030'/>"
+			+ "<ellipse cx='96' cy='88' rx='26' ry='17' fill='#ffffff' opacity='0.026'/>"
+			+ "<ellipse cx='22' cy='100' rx='14' ry='10' fill='#000000' opacity='0.045'/></svg>"),
+	}
+
 func _init() -> void:
 	var made := 0
+	for name in floors():
+		var tile := Image.new()
+		if tile.load_svg_from_string(String(floors()[name]), 1.0) != OK:
+			print("FAILED ", name)
+			continue
+		tile.save_png(ProjectSettings.globalize_path("res://assets/sprites/%s.png" % name))
+		made += 1
 	var all := cast()
 	all.merge(props())
 	for name in all:
