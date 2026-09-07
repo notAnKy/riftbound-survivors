@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 355
+const EXPECTED_CHECKS := 358
 var checks := 0
 
 func _initialize() -> void:
@@ -1821,8 +1821,28 @@ func test_enemy_roster() -> void:
 	s.player.hp = s.player.max_hp
 	s.on_enemy_died(s.player.position + Vector2(1200, 0), 1, false, bloater)
 	check("a distant explosion is harmless (%.0f hp)" % s.player.hp, is_equal_approx(s.player.hp, s.player.max_hp))
+	# The blast is fused rather than instant. The player's own gun is what kills
+	# a bloater, so damage on the death frame arrives with nothing to attribute
+	# it to -- the warning ring is the whole point and it needs time to be seen.
+	s.round_phase = "combat"
+	s.round_time_left = 99.0
+	s.player.hp = s.player.max_hp
 	s.on_enemy_died(s.player.position + Vector2(20, 0), 1, false, bloater)
-	check("one at your feet hurts (%.0f hp)" % s.player.hp, s.player.hp < s.player.max_hp)
+	check("the blast does not land on the death frame (%.0f hp)" % s.player.hp,
+		is_equal_approx(s.player.hp, s.player.max_hp))
+	s.tick(Balance.BLOAT_FUSE * 0.5)
+	check("nor half way through the fuse (%.0f hp)" % s.player.hp,
+		is_equal_approx(s.player.hp, s.player.max_hp))
+	s.tick(Balance.BLOAT_FUSE)
+	check("one at your feet hurts once the fuse burns down (%.0f hp)" % s.player.hp,
+		s.player.hp < s.player.max_hp)
+	# A fuse still burning holds the wave open, or the last bloater of a wave
+	# opens the shop and then blows up somebody who is buying things.
+	clear_field(s)
+	s.round_phase = "cleanup"
+	s.on_enemy_died(s.player.position + Vector2(1200, 0), 1, false, bloater)
+	s.tick(Balance.BLOAT_FUSE * 0.5)
+	check("a burning fuse holds the wave open (%s)" % s.round_phase, s.round_phase == "cleanup")
 
 	# a charger winds up before it dashes
 	clear_field(s)

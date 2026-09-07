@@ -39,6 +39,10 @@ var kills := 0
 # Bosses actually put down this run, which is a thing an achievement asks for
 # and nothing else was counting.
 var bosses_killed := 0
+# Blasts whose fuse is still burning: {at, spec, timer}. A bloater's explosion
+# is deliberately not instant, so the damage has to outlive the enemy that
+# caused it and cannot simply ride the death signal any more.
+var pending_blasts: Array[Dictionary] = []
 var round_number := 1
 var round_duration := 40.0
 var round_length := 40.0
@@ -212,6 +216,7 @@ func reset_run() -> void:
 	spawn_timer = 0.0
 	kills = 0
 	bosses_killed = 0
+	pending_blasts.clear()
 	round_number = 1
 	round_length = round_duration
 	round_time_left = round_length
@@ -305,12 +310,16 @@ func tick(delta: float) -> void:
 		who.nova_cooldown = maxf(0.0, who.nova_cooldown - delta)
 	aim_players()
 	if round_phase == "shop" or round_phase == "won": return
+	tick_blasts(delta)
 	if round_phase == "combat":
 		round_time_left = maxf(0.0, round_time_left - delta)
 		spawn_enemies(delta)
 		if round_time_left <= 0.0: round_phase = "cleanup"
 	fire_weapons(delta)
-	if round_phase == "cleanup" and actors.get_child_count() == 0:
+	# A fuse still burning holds the wave open. Otherwise killing the last
+	# bloater opens the shop and the blast lands on a player who is buying
+	# things, which is both unfair and impossible to understand.
+	if round_phase == "cleanup" and actors.get_child_count() == 0 and pending_blasts.is_empty():
 		if round_number >= Balance.FINAL_WAVE:
 			round_phase = "won"
 			audio.play("victory")
@@ -810,7 +819,26 @@ func explode(at: Vector2, spec: Dictionary) -> void:
 	blast.position = at
 	blast.radius = radius
 	blast.tint = Color(1.0, 0.55, 0.3)
+	# Warn first, hurt after. The player's own gun is what kills a bloater, so
+	# an explosion on the death frame arrives with no cause the player can see:
+	# 26 damage out of a corpse they had already stopped looking at.
+	blast.fuse = Balance.BLOAT_FUSE
 	add_child(blast)
+	pending_blasts.append({"at": at, "spec": spec, "timer": Balance.BLOAT_FUSE})
+
+func tick_blasts(delta: float) -> void:
+	if pending_blasts.is_empty(): return
+	var burning: Array[Dictionary] = []
+	for blast in pending_blasts:
+		blast.timer -= delta
+		if blast.timer <= 0.0: detonate(blast.at, blast.spec)
+		else: burning.append(blast)
+	pending_blasts = burning
+
+# The blast itself, once the fuse has burned down. Standing in the ring still
+# costs the full damage -- the warning buys a reaction, not an exemption.
+func detonate(at: Vector2, spec: Dictionary) -> void:
+	var radius := float(spec.get("radius", 150.0))
 	add_shake(Balance.SHAKE_NOVA * 0.5)
 	audio.play("boom", -6.0)
 	for who in living():

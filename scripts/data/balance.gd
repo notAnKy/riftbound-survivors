@@ -86,6 +86,12 @@ const REVIVE_HP := 0.5
 # Enemy health per extra survivor. Two players put out far more than twice one
 # player's damage, because most of the sheet is per-weapon and they carry two
 # racks, so the crowd has to be tougher than a straight doubling of numbers.
+# How long a bloater's blast hangs as a warning ring before it lands. The
+# explosion used to fire on the same frame the enemy died -- and the player's own
+# gun is what kills it, so 26 damage arrived from a corpse nobody was looking at
+# with no visible cause at all. A fuse turns it into something to step out of
+# without making it free: standing on one still costs you.
+const BLOAT_FUSE := 0.45
 const COOP_ENEMY_HP := 0.45
 const COOP_SPAWN := 0.35
 

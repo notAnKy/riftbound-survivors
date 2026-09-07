@@ -29,6 +29,8 @@ var charge_dir := Vector2.RIGHT
 var age := 0.0
 var alive := true
 var tint := Color.WHITE
+# A hop, a breath and a flinch on a sprite that has no frames. See sprite_anim.
+var anim := SpriteAnim.new()
 # Whoever this enemy is currently going for. In solo that is the only player
 # there is; in co-op it is re-picked every frame, so a crowd splits between the
 # two survivors and follows whichever one comes closer.
@@ -83,6 +85,10 @@ func configure(def: Dictionary, round_number: int, who: Array, boss: bool = fals
 	sprite.texture = load("res://assets/sprites/%s.png" % def.texture)
 	sprite.scale = Vector2.ONE * float(def.scale) * (Balance.ELITE_SCALE if is_elite else 1.0)
 	sprite.modulate = tint
+	anim.begin(sprite)
+	# A bloater breathes visibly, because it is the brute's sprite in another
+	# colour and it has to be pickable out of a crowd before it dies.
+	if def.has("explodes"): anim.swell = 0.06
 	var shape := $Body as CollisionShape2D
 	shape.shape = shape.shape.duplicate()
 	shape.shape.radius = radius
@@ -126,6 +132,8 @@ func _physics_process(delta: float) -> void:
 	if hit_flash > 0.0: sprite.modulate = tint * 1.75
 	elif charge_state == "windup": sprite.modulate = tint * 1.6
 	else: sprite.modulate = tint
+	# Last frame's velocity is plenty: this is a hop, not a simulation.
+	anim.tick(sprite, delta, velocity.length() / maxf(speed, 1.0))
 	var to_player := player.global_position - global_position
 	var distance := to_player.length()
 	var direction := to_player / maxf(distance, 0.001)
@@ -157,7 +165,9 @@ func _physics_process(delta: float) -> void:
 	# Enemies collide with each other, so a crowd spreads out under its own
 	# pressure instead of stacking into one sprite the way the old sim did.
 	move_and_slide()
-	if charge_state == "windup": queue_redraw()
+	# The bloater's aura pulses, so it needs a redraw every frame the way the
+	# charger's wind-up ring does.
+	if charge_state == "windup" or definition.has("explodes"): queue_redraw()
 	if behaviour != "shooter" and distance < radius + Player.BODY_RADIUS + 2.0 and attack_timer <= 0.0:
 		attack_timer = attack_cooldown
 		player.hurt(contact_damage)
@@ -169,6 +179,7 @@ func take_damage(amount: float, crit: bool = false) -> void:
 	if not alive: return
 	hp -= amount
 	hit_flash = 0.07
+	anim.hit()
 	damaged.emit(position, amount, crit)
 	queue_redraw()
 	if hp <= 0.0:
@@ -207,6 +218,12 @@ func _draw() -> void:
 	if charge_state == "windup":
 		var wind := 1.0 - charge_timer / maxf(float(definition.get("charge_windup", 0.65)), 0.01)
 		draw_arc(Vector2.ZERO, radius + 6.0 + wind * 8.0, 0.0, TAU, 24, Color(1.0, 0.9, 0.4, 0.8), 3.0)
+	# The bloater kills from its own corpse, so it has to be readable as the
+	# thing that is going to do it while it is still alive.
+	if definition.has("explodes"):
+		var swell := 3.0 + sin(age * 6.0 + wobble) * 2.5
+		draw_arc(Vector2.ZERO, radius + swell, 0.0, TAU, 24, Color(1.0, 0.46, 0.22, 0.8), 2.5)
+		draw_arc(Vector2.ZERO, radius + swell + 4.0, 0.0, TAU, 24, Color(1.0, 0.30, 0.16, 0.35), 2.0)
 	if is_elite:
 		var pulse := 3.0 + sin(age * 4.0) * 2.0
 		draw_arc(Vector2.ZERO, radius + pulse, 0.0, TAU, 28, Color(1.0, 0.78, 0.28, 0.75), 3.0)
