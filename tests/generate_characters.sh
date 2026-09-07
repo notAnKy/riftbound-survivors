@@ -10,7 +10,11 @@
 # the results came back with 1px detail and gradients that read as imported from
 # a higher-resolution game. Check anything new with tests/compare_sheet.gd.
 set -euo pipefail
-STYLE="flat solid colors, no gradients, no shading, thick black outline, chunky retro 16-bit dungeon tileset sprite, centered, no shadow, no ground, plain background"
+# The dome is the whole design language: a plain rounded body with the character's
+# identity sitting on top of it as one accessory. The first pass asked for a
+# "slime blob monster" and got creatures with tentacles and limbs -- busy
+# silhouettes where the accessory had to compete with the body for attention.
+STYLE="smooth rounded dome shape with a flat wide bottom, two small black dot eyes, one white gloss highlight, no arms, no legs, no feet, no tentacles, flat solid colors, no gradients, thick black outline, cute game mascot sprite, plain background"
 
 gen () {
   jq -n --arg d "$2, $STYLE" '{
@@ -25,10 +29,10 @@ gen () {
   echo "wrote assets/sprites/$1.png"
 }
 
-gen char_runner   "a cute round teal slime blob monster with two simple dark eyes, friendly and plain"
-gen char_warden   "a purple slime blob monster wearing a tall pointed wizard hat, holding a small glowing staff"
-gen char_revenant "a dark orange slime blob monster wearing a heavy grey iron knight helmet with a visor"
-gen char_dancer   "a pink slime blob monster wearing a red headband, holding a small silver dagger"
-gen char_siege    "a large fat yellow slime blob monster with a big metal cannon barrel mounted on its back"
-gen char_scav     "a mint green slime blob monster wearing a gold monocle, carrying a brown coin pouch"
+gen char_runner   "a plain pale teal slime blob, friendly calm face"
+gen char_warden   "a purple slime blob wearing a tall pointed purple wizard hat with a star on it"
+gen char_revenant "a dark orange slime blob wearing a grey iron knight helmet with a visor slit"
+gen char_dancer   "a pink slime blob wearing a red ninja headband with the ends trailing, angry eyes"
+gen char_siege    "a wide fat yellow slime blob with a short grey metal cannon barrel mounted on top"
+gen char_scav     "a mint green slime blob wearing a gold monocle over one eye and a tiny brown top hat"
 echo "now run --import, or Godot keeps serving the old textures"
