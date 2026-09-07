@@ -23,8 +23,9 @@ const WALL_THICKNESS := 60.0
 # different floor rather than as an object on it, which is worse than nothing;
 # the ground's own detail comes from the accent layer instead.
 const PROPS := [
-	{"texture": "prop_growth", "tint": Color(0.86, 0.82, 0.76, 0.85)},
+	{"texture": "prop_growth", "tint": Color(0.80, 0.76, 0.70, 0.55)},
 ]
+const PROP_SCALE := 0.9
 const PROP_COUNT := 16
 const PROP_SEED := 20260906
 
@@ -101,7 +102,10 @@ func scatter_props() -> void:
 		sprite.position = spot
 		# Quarter turns only: pixel art rotated off-axis turns into porridge.
 		sprite.rotation = float(rng.randi_range(0, 3)) * PI * 0.5
-		sprite.scale = Vector2.ONE
+		# Decoration sits under the actors in the hierarchy as well as in the
+		# draw order: same source pixels, deliberately smaller and dimmer, so a
+		# mushroom cannot be mistaken for something that matters.
+		sprite.scale = Vector2.ONE * PROP_SCALE
 		sprite.modulate = prop.tint
 		add_child(sprite)
 		placed += 1

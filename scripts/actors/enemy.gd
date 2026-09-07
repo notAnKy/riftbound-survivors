@@ -83,7 +83,7 @@ func configure(def: Dictionary, round_number: int, who: Array, boss: bool = fals
 		material_value *= Balance.ELITE_MATERIALS
 	var sprite := $Sprite as Sprite2D
 	sprite.texture = load("res://assets/sprites/%s.png" % def.texture)
-	sprite.scale = Vector2.ONE * float(def.scale) * (Balance.ELITE_SCALE if is_elite else 1.0)
+	sprite.scale = Vector2.ONE * float(def.scale) * Balance.ACTOR_SCALE * (Balance.ELITE_SCALE if is_elite else 1.0)
 	sprite.modulate = tint
 	anim.begin(sprite)
 	# A bloater breathes visibly, because it is the brute's sprite in another

@@ -50,6 +50,8 @@ func _ready() -> void:
 	var shape: CollisionShape2D = $Magnet/Shape
 	shape.shape = shape.shape.duplicate()
 	refresh_pickup_radius()
+	# Set before the first anim tick, which captures whatever scale it finds.
+	($Sprite as Sprite2D).scale = Vector2.ONE * Balance.ACTOR_SCALE
 
 func refresh_pickup_radius() -> void:
 	($Magnet/Shape as CollisionShape2D).shape.radius = BASE_PICKUP_RADIUS + stats.get_stat("pickup_radius")

@@ -91,6 +91,13 @@ const REVIVE_HP := 0.5
 # gun is what kills it, so 26 damage arrived from a corpse nobody was looking at
 # with no visible cause at all. A fuse turns it into something to step out of
 # without making it free: standing on one still costs you.
+# How much bigger than its source pixels an actor is drawn. The Tiny Dungeon
+# sprites are 16px and were being rendered at 1:1 -- *smaller* than the 26px
+# collision diameter they carry, so the art understated its own hitbox, and the
+# scattered props are the same 16px and were exactly as visually loud as the
+# things that kill you. This is one number so the actors and the decoration can
+# never drift back into the same size again.
+const ACTOR_SCALE := 1.7
 const BLOAT_FUSE := 0.45
 const COOP_ENEMY_HP := 0.45
 const COOP_SPAWN := 0.35
