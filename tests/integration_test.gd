@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 348
+const EXPECTED_CHECKS := 355
 var checks := 0
 
 func _initialize() -> void:
@@ -81,6 +81,7 @@ func bootstrap() -> void:
 	await test_healing_is_scarce()
 	await test_between_wave_healing()
 	await test_level_up_selection()
+	await test_pointer_does_not_fight_the_arrows()
 	await test_controller()
 	await test_quit_confirmation()
 	await test_slider_sweeping()
@@ -1009,6 +1010,48 @@ func test_level_up_selection() -> void:
 	check("and its cards, buttons and slots are one list (%d rows)" % game.menu_items().size(),
 		game.menu_items().size() >= GameUI.SHOP_CARDS + 2)
 	check("laid out as the bands it is drawn in (%d)" % game.menu_groups().size(), game.menu_groups().size() == 3)
+	game.free()
+
+# A mouse left sitting on a card must not fight the arrow keys. The shop and
+# the level-up screen are wall-to-wall cards, so the pointer is nearly always
+# resting on one -- and re-reading it every frame put the cursor straight back
+# under the mouse, which made the arrows look dead on exactly those two screens.
+func test_pointer_does_not_fight_the_arrows() -> void:
+	var game = await fresh_game()
+	var s = game.session
+
+	s.upgrades = UpgradeCatalog.roll_choices(s.rng, 1, 0.0)
+	game.state = "level_up"
+	var parked: Vector2 = game.ui.upgrade_rect(1).get_center()
+	game.follow_pointer(parked)
+	check("a resting pointer takes the cursor (%d)" % game.menu_index, game.menu_index == 1)
+	press(game, KEY_RIGHT)
+	check("right still moves off it (%d)" % game.menu_index, game.menu_index == 2)
+	# The frames that follow, with the mouse sitting exactly where it was left.
+	for _i in range(3): game.follow_pointer(parked)
+	check("and the resting pointer does not drag it back (%d)" % game.menu_index,
+		game.menu_index == 2)
+	game.follow_pointer(game.ui.upgrade_rect(0).get_center())
+	check("actually moving the mouse takes the cursor back (%d)" % game.menu_index,
+		game.menu_index == 0)
+
+	# The shop is the other screen laid out across the display, and the one the
+	# pointer is most likely to be parked on.
+	game.state = "playing"
+	s.finish_wave()
+	var card: Vector2 = game.ui.card_rect(1).get_center()
+	game.follow_pointer(card)
+	var hovered: int = game.menu_index
+	check("the pointer takes the shop cursor (%s)" % game.focused_action(),
+		game.focused_action() == "buy_1")
+	press(game, KEY_RIGHT)
+	var moved: int = game.menu_index
+	for _i in range(3): game.follow_pointer(card)
+	check("the shop cursor stays where the arrows put it (%d -> %d)" % [hovered, game.menu_index],
+		moved != hovered and game.menu_index == moved)
+	press(game, KEY_LEFT)
+	for _i in range(3): game.follow_pointer(card)
+	check("and left walks back the same way (%d)" % game.menu_index, game.menu_index == hovered)
 	game.free()
 
 # A PS4 pad has to reach everything a keyboard can, and the prompts have to

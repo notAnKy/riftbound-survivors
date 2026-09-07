@@ -41,6 +41,17 @@ var last_earned: Array[String] = []
 var rift_effects_enabled := true
 var profile := ProfileManager.new()
 var menu_hover := ""
+# Whether the pointer currently owns the menu cursor. The shop and the level-up
+# screen are wall-to-wall cards, so a mouse resting anywhere on them was re-read
+# every frame and hauled the cursor straight back off whatever an arrow key had
+# just selected -- the arrow keys looked dead. A directional press takes the
+# cursor; the pointer takes it back only by genuinely moving, which is the same
+# arbitration MOUSE_WAKE already runs between the mouse and a pad.
+var mouse_leads := true
+# Where the pointer was the last time it was the thing driving. The keys freeze
+# it, so the distance measured against it is how far the mouse has moved since
+# it lost the cursor rather than since the last frame.
+var mouse_anchor := Vector2.ZERO
 # Two players at one machine. The keyboard drives seat 0 and the pad seat 1;
 # solo leaves this false and everything below collapses back to one seat.
 var coop := false
@@ -164,8 +175,7 @@ func _process(delta: float) -> void:
 	# Not while a pad is driving. The OS mouse stays parked wherever it was left,
 	# so syncing from it would haul the menu cursor back onto that row every
 	# frame and the d-pad would appear to do nothing at all.
-	if state in MOUSE_STATES and mouse_active():
-		sync_hover(get_viewport().get_mouse_position())
+	follow_pointer(get_viewport().get_mouse_position())
 	poll_stick(delta)
 	poll_lobby(delta)
 	# Both ways of sweeping a volume bar, and one disk write when the sweep
@@ -178,6 +188,19 @@ func _process(delta: float) -> void:
 	ui.queue_redraw()
 
 # --- menu navigation ---------------------------------------------------------
+
+# The pointer's claim on the menu cursor, settled once a frame. Takes the
+# position rather than reading the viewport so a test can park a mouse on a
+# card, which is the whole shape of the bug this arbitration exists for.
+func follow_pointer(point: Vector2) -> void:
+	if not (state in MOUSE_STATES and mouse_active()):
+		mouse_anchor = point
+		return
+	if not mouse_leads and point.distance_to(mouse_anchor) >= MOUSE_WAKE:
+		mouse_leads = true
+	if not mouse_leads: return
+	mouse_anchor = point
+	sync_hover(point)
 
 # Keep the keyboard cursor under the mouse, so the two never disagree about
 # which row is about to be activated.
@@ -275,9 +298,18 @@ func jump_group(step: int, at_seat: int = 0) -> void:
 	audio.play("ui_move")
 	set_cursor(at_seat, int(target[mini(column, target.size() - 1)]))
 
+# A directional press takes the cursor off the pointer until the pointer moves
+# again. Only seat 0 is ever steered by a mouse, so seat 1's pad must not clear
+# the hover its team-mate is still using.
+func take_cursor_from_pointer(at_seat: int) -> void:
+	if at_seat != 0: return
+	mouse_leads = false
+	menu_hover = ""
+
 # One directional press, resolved against the way this screen is laid out.
 # `vertical` is the axis the press came from, not the axis it ends up moving on.
 func move_focus(step: int, vertical: bool, at_seat: int = 0) -> void:
+	take_cursor_from_pointer(at_seat)
 	if state in LIST_STATES:
 		if vertical:
 			move_menu(step, at_seat)
@@ -769,6 +801,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		dragging = ""
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and state in MOUSE_STATES:
+		# Clicking is the pointer asserting itself, even if it never moved.
+		mouse_leads = true
 		var clicked := ui.menu_action_at(event.position)
 		# A press on a volume row sets it where you clicked and then follows the
 		# mouse until the button comes up, so the bar can be swept.
