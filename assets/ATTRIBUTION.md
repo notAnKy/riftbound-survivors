@@ -92,6 +92,14 @@ the glyph can be tinted in-game. No other modification is made.
   good as the aggregator's diligence — verify each track at freesound.org
   before any commercial release.
 
+## Weapon icons
+
+- `assets/icons/w_*.svg` are drawn in this project by `tests/draw_weapons.gd`,
+  not sourced. They replaced game-icons.net glyphs, whose fine line art read as
+  noise at 30px beside the chunky actor art.
+- The **item** icons (`assets/icons/i_*.svg`) are still game-icons.net and the
+  CC BY 3.0 credit below still applies to them.
+
 ## Character art
 
 - `assets/sprites/char_*.png` — the six playable survivors, generated with
