@@ -19,19 +19,33 @@ var rerolls := 0
 var allowed_kinds: Array = []
 # Weapon classes the player already owns, for the bias above.
 var owned_classes: Array = []
+# The wave the current board was rolled for, so the reroll price can climb too.
+var round_number := 1
+# How many items the buyer already holds, which makes the next one dearer.
+var owned_items := 0
 
+# Compounding, so prices keep pace with an income that grows with the enemy
+# count rather than with the wave number.
+static func price_scale(round_number: int) -> float:
+	return pow(1.0 + Balance.SHOP_INFLATION_PER_WAVE, float(round_number))
+
+# The reroll has to climb with everything else, or it is free by the midgame and
+# the board can simply be spun until it says yes.
 func reroll_cost() -> int:
-	return REROLL_BASE + rerolls * REROLL_STEP
+	return int(round(float(REROLL_BASE + rerolls * REROLL_STEP) * price_scale(round_number)))
 
-func open(rng: RandomNumberGenerator, round_number: int, luck: float) -> void:
+func open(rng: RandomNumberGenerator, wave: int, luck: float) -> void:
 	rerolls = 0
-	roll(rng, round_number, luck)
+	round_number = wave
+	roll(rng, wave, luck)
 
-func reroll(rng: RandomNumberGenerator, round_number: int, luck: float) -> void:
+func reroll(rng: RandomNumberGenerator, wave: int, luck: float) -> void:
 	rerolls += 1
-	roll(rng, round_number, luck)
+	round_number = wave
+	roll(rng, wave, luck)
 
-func roll(rng: RandomNumberGenerator, round_number: int, luck: float) -> void:
+func roll(rng: RandomNumberGenerator, wave: int, luck: float) -> void:
+	round_number = wave
 	offers.clear()
 	for i in range(SLOTS):
 		var offer := make_offer(rng, round_number, luck)
@@ -55,7 +69,7 @@ func take(index: int) -> Dictionary:
 func make_offer(rng: RandomNumberGenerator, round_number: int, luck: float) -> Dictionary:
 	# Prices drift up with the round so the shop keeps mattering once a run
 	# is producing far more materials per wave than it did at the start.
-	var inflation := 1.0 + float(round_number) * Balance.SHOP_INFLATION_PER_WAVE
+	var inflation := price_scale(round_number)
 	if rng.randf() < WEAPON_CHANCE:
 		var defs := WeaponCatalog.of_kinds(allowed_kinds)
 		# Bias toward what is already being built, so a run converges on a
@@ -76,10 +90,11 @@ func make_offer(rng: RandomNumberGenerator, round_number: int, luck: float) -> D
 		}
 	var items := ItemCatalog.available(round_number)
 	var item: Dictionary = items[rng.randi_range(0, items.size() - 1)]
+	var hoard := 1.0 + float(owned_items) * Balance.ITEM_PRICE_PER_OWNED
 	return {
 		"kind": "item", "id": item.id, "tier": 1, "name": item.name,
 		"text": ItemCatalog.describe(item), "color": item.color,
-		"price": int(round(float(item.price) * inflation)),
+		"price": int(round(float(item.price) * inflation * hoard)),
 	}
 
 # Each extra tier is a second roll against the same chance, so tier IV stays

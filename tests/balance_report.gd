@@ -24,6 +24,9 @@ extends SceneTree
 # condition, and single-target DPS badly understates what a rack does to a pack.
 
 const SEED := 20260907
+# One run per danger was tuning against shop RNG: two dangers apart differed by
+# more than the ladder does. Several seeds, and the median is reported.
+const SAMPLES := 5
 # Measured, not guessed: 80 enemies packed round a stationary player, six
 # seconds of real firing, total damage dealt over the single-target figure.
 #   one pistol   1.1x      six mixed weapons  3.9x      six melee blades  7.9x
@@ -36,7 +39,7 @@ const REROLL_BUDGET := 2
 func _initialize() -> void:
 	report.call_deferred()
 
-func fresh(danger: int) -> Node:
+func fresh(danger: int, seed_value: int) -> Node:
 	var game = load("res://Main.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
@@ -45,7 +48,7 @@ func fresh(danger: int) -> Node:
 	game.state = "playing"
 	game.start_run()
 	await process_frame
-	game.session.rng.seed = SEED
+	game.session.rng.seed = seed_value
 	return game
 
 # --- what a wave sends --------------------------------------------------------
@@ -53,10 +56,7 @@ func fresh(danger: int) -> Node:
 # Straight out of the spawner: batch size, interval and wave length all come
 # from Balance, so this tracks any tuning change automatically.
 func wave_enemies(round_number: int, danger: int, duration: float) -> int:
-	var per_batch := 1 + int(round_number / Balance.SPAWN_BATCH_EVERY)
-	var interval := maxf(Balance.SPAWN_INTERVAL_MIN,
-		Balance.SPAWN_INTERVAL / Balance.intensity(round_number) * Balance.danger_spawn(danger))
-	return int(duration / interval) * per_batch
+	return int(duration / Balance.spawn_interval(round_number, danger)) * Balance.spawn_batch(round_number)
 
 func average_enemy_hp(round_number: int, danger: int) -> float:
 	var options := EnemyCatalog.available(round_number)
@@ -88,27 +88,51 @@ func build_dps(who) -> float:
 
 # --- what the player does between waves --------------------------------------
 
-func spend(game, wave: int) -> void:
+# The weakest thing in the rack, which is what gets sold to make room.
+func weakest(who) -> int:
+	var at := 0
+	for i in range(who.weapons.size()):
+		if who.weapons[i].tier < who.weapons[at].tier: at = i
+	return at
+
+func combine_any(s) -> bool:
+	for i in range(s.seat(0).weapons.size()):
+		if s.can_combine(i, 0): return s.combine_weapon(i, 0)
+	return false
+
+# A reasonable player, not a naive one. The first version of this only ever
+# bought, so the rack filled at wave 3 and then sat at tier 1 for seventeen
+# waves -- which understated late damage enormously. Merging duplicates and
+# trading up over the weakest slot is most of where late power comes from.
+func spend(game, wave: int, skilled: bool) -> void:
 	var s = game.session
 	var who = s.seat(0)
 	var rerolled := 0
-	while true:
+	var moves := 0
+	while moves < 40:
+		moves += 1
+		# Free power first: a pair becomes one a tier up and frees a slot.
+		if skilled and combine_any(s): continue
 		var best := -1
-		var best_price := -1
+		var best_score := -1
 		for i in range(s.shop.offers.size()):
 			var offer: Dictionary = s.shop.offers[i]
-			if offer.is_empty(): continue
-			if int(offer.price) > who.materials: continue
-			# Weapons while there is room for one, then the dearest item.
-			var wants_weapon: bool = offer.kind == "weapon" and who.weapons.size() < who.weapon_slots
-			var score: int = int(offer.price) + (10000 if wants_weapon else 0)
-			if score > best_price:
-				best_price = score
+			if offer.is_empty() or int(offer.price) > who.materials: continue
+			var score := int(offer.price)
+			if offer.kind == "weapon":
+				if who.weapons.size() < who.weapon_slots: score += 20000
+				elif skilled and who.weapons.size() > 1 and int(offer.tier) > who.weapons[weakest(who)].tier: score += 10000
+				else: continue
+			if score > best_score:
+				best_score = score
 				best = i
 		if best >= 0:
+			var offer: Dictionary = s.shop.offers[best]
+			if offer.kind == "weapon" and who.weapons.size() >= who.weapon_slots:
+				s.sell_weapon(weakest(who), 0)
 			if s.buy(best, 0): continue
 			break
-		# Nothing affordable: reroll a couple of times if it is cheap enough.
+		# Nothing worth having: reroll a couple of times.
 		if rerolled >= REROLL_BUDGET or not s.reroll_shop(0): break
 		rerolled += 1
 
@@ -127,13 +151,14 @@ func take_levels(game) -> void:
 
 # --- the walk -----------------------------------------------------------------
 
-func run_danger(danger: int) -> Dictionary:
-	var game = await fresh(danger)
+func run_danger(danger: int, skilled: bool, seed_value: int, quiet: bool) -> Dictionary:
+	var game = await fresh(danger, seed_value)
 	var s = game.session
 	var who = s.seat(0)
-	print("")
-	print("DANGER %d" % danger)
-	print("wave  enemyHP  spawned  spawn/s  kill/s  pressure  leftover  cleanup   purse  cheapest  lvl")
+	if not quiet:
+		print("")
+		print("DANGER %d  --  %s" % [danger, "player who merges and trades up" if skilled else "player who only buys"])
+		print("wave  enemyHP  spawned  spawn/s  kill/s  pressure  leftover  cleanup   purse  cheapest  lvl")
 	var first_behind := 0
 	var first_broke := 0
 	var worst_cleanup := 0.0
@@ -167,15 +192,17 @@ func run_danger(danger: int) -> Dictionary:
 		for offer in s.shop.offers:
 			if not offer.is_empty(): cheapest = mini(cheapest, int(offer.price))
 		if first_broke == 0 and cheapest > purse: first_broke = wave
-		spend(game, wave)
+		spend(game, wave, skilled)
 		take_levels(game)
 
-		print("%4d  %7.0f  %7d  %7.1f  %6.1f  %8.2f  %8.0f  %6.0fs %7d  %8d  %3d" % [
-			wave, each, count, spawn_rate, kill_rate, pressure, leftover, cleanup,
-			purse, cheapest, who.level])
+		if not quiet:
+			print("%4d  %7.0f  %7d  %7.1f  %6.1f  %8.2f  %8.0f  %6.0fs %7d  %8d  %3d" % [
+				wave, each, count, spawn_rate, kill_rate, pressure, leftover, cleanup,
+				purse, cheapest, who.level])
 		s.begin_round()
 	var summary := {
 		"danger": danger,
+		"skilled": skilled,
 		"behind": first_behind,
 		"broke": first_broke,
 		"cleanup": worst_cleanup,
@@ -184,12 +211,19 @@ func run_danger(danger: int) -> Dictionary:
 		"weapons": who.weapons.size(),
 		"items": who.items.size(),
 		"max_hp": who.player.max_hp,
+		"purse": who.materials,
 	}
 	game.free()
 	return summary
 
+# The middle run of the samples, by how bad its worst cleanup got.
+func median_of(samples: Array[Dictionary]) -> Dictionary:
+	samples.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a.cleanup) < float(b.cleanup))
+	return samples[samples.size() / 2]
+
 func report() -> void:
 	print("Balance model -- the damage race and the economy, using the real formulas.")
+	print("Median of %d shop seeds per row." % SAMPLES)
 	print("Positioning is not modelled: it assumes everything is reachable and collected.")
 	var only := -1
 	for argument in OS.get_cmdline_user_args():
@@ -197,18 +231,23 @@ func report() -> void:
 	var rows: Array[Dictionary] = []
 	for danger in range(Balance.DANGER_LEVELS):
 		if only >= 0 and danger != only: continue
-		rows.append(await run_danger(danger))
+		for skilled in [false, true]:
+			var samples: Array[Dictionary] = []
+			for i in range(SAMPLES):
+				# Only the first sample prints its table; the rest are for the median.
+				samples.append(await run_danger(danger, skilled, SEED + i * 977, i > 0 or only < 0))
+			rows.append(median_of(samples))
 	print("")
 	print("SUMMARY")
-	print("danger  crowd-outruns-you  worst-cleanup  shop-outgrown  finalDPS  lvl  weapons  items  maxHP")
+	print("danger  policy   crowd-outruns-you  worst-cleanup  leftover-purse  items  finalDPS  maxHP")
 	for row in rows:
-		print("%6d  %17s  %12.0fs  %13s  %8.0f  %3d  %7d  %5d  %5.0f" % [
-			row.danger,
+		print("%6d  %-7s  %17s  %12.0fs  %14d  %5d  %8.0f  %5.0f" % [
+			row.danger, "merges" if row.skilled else "buys",
 			"never" if row.behind == 0 else "wave %d" % row.behind,
-			row.cleanup,
-			"never" if row.broke == 0 else "wave %d" % row.broke,
-			row.dps, row.level, row.weapons, row.items, row.max_hp])
+			row.cleanup, row.purse, row.items, row.dps, row.max_hp])
 	print("")
+	print("The two policies differ only in whether the player merges duplicates and")
+	print("trades up over the weakest slot. That gap is the real difficulty range.")
 	print("pressure > 1.00 means the crowd grows faster than it dies. A wave still")
 	print("ends on its timer, so that shows up as leftover enemies and a long cleanup")
 	print("rather than as a loss -- but it is what a wall feels like to play.")

@@ -11,6 +11,12 @@ const ENEMY_HP_PER_ROUND := 4.2
 # The curve compounds, so small changes here matter far more by round 10 than
 # anything else in this file. 1.30 made round 10 enemies roughly 1700hp.
 const ROUND_INTENSITY := 1.16
+# And then it compounds more gently. Waves 1-10 were tuned by playing them and
+# are left exactly as they were; past that, 1.16 all the way to wave 20 is a
+# 16.8x multiplier on enemy health, which no build keeps pace with once the shop
+# is a real constraint. The second rate takes wave 20 to 9.0x instead.
+const ROUND_INTENSITY_LATE := 1.09
+const INTENSITY_SOFTENS_AT := 10
 
 const ENEMY_SPEED_MIN := 54.0
 const ENEMY_SPEED_MAX := 82.0
@@ -29,11 +35,25 @@ const XP_FLAT := 3
 
 # Seconds between spawn batches, before the curve divides it down.
 const SPAWN_INTERVAL := 1.05
-const SPAWN_INTERVAL_MIN := 0.16
+# The floor binds from about wave 12 on, so it alone sets the late-game spawn
+# rate: at 0.16 with a batch of five that was 31 enemies a second and close to
+# two thousand in one wave, which is where the crowd ran away from any build
+# that was not merging weapons.
+const SPAWN_INTERVAL_MIN := 0.22
 # Rounds at which the spawner starts adding another enemy per batch. It
 # used to double up at round 4, which is exactly where the difficulty
 # complaint landed.
 const SPAWN_BATCH_EVERY := 5
+# And a ceiling on that, for the same reason as the interval floor.
+const SPAWN_BATCH_MAX := 4
+
+# The spawner's shape, in one place: the report models a wave from these too,
+# and a second copy of the formula would drift from the real one.
+static func spawn_batch(round_number: int) -> int:
+	return mini(1 + int(round_number / SPAWN_BATCH_EVERY), SPAWN_BATCH_MAX)
+
+static func spawn_interval(round_number: int, danger: int) -> float:
+	return maxf(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL / intensity(round_number) * danger_spawn(danger))
 
 # Healing, in two halves that must not be confused.
 #
@@ -69,9 +89,20 @@ const REVIVE_HP := 0.5
 const COOP_ENEMY_HP := 0.45
 const COOP_SPAWN := 0.35
 
-# Shop prices climb per wave. Material income grows far faster than this, so a
-# shallow curve stops the shop mattering by the midgame.
-const SHOP_INFLATION_PER_WAVE := 0.18
+# Shop prices climb per wave, and they compound.
+#
+# This used to be linear -- 1 + round * rate -- which reached only 4.6x by wave
+# 20 while material income, which tracks the enemy count, grows about fiftyfold
+# across a run. The balance report showed every simulated run ending with over a
+# hundred items bought and twenty thousand materials still unspent: the shop had
+# no scarcity left at all, and a stat sheet with a hundred items on it makes
+# every other number meaningless. Compounding at the same rate reaches ~38x.
+const SHOP_INFLATION_PER_WAVE := 0.20
+# Each item already held makes the next one dearer. Wave inflation alone kept
+# prices level with income, so the count purchased per wave never fell and a run
+# still finished holding ninety of them. This is what makes an item a decision
+# rather than something you pick up because you happen to have the materials.
+const ITEM_PRICE_PER_OWNED := 0.055
 
 # Rift Nova: a real area attack rather than a quiet damage tick.
 const NOVA_RADIUS := 300.0
@@ -85,11 +116,16 @@ const FINAL_WAVE := 20
 
 # Danger levels are the replay ladder: beating one opens the next. Enemies get
 # tougher, and materials rise to part-compensate so the shop keeps pace.
+# Enemy health and spawn rate both multiply pressure, and materials were the
+# only thing paying for it: at 0.24 and 0.09 against 0.16, danger 5 was 3.2x the
+# pressure for 1.8x the income, and the report walled it at wave 5. These are
+# set so the extra income roughly covers the extra pressure and the ladder is
+# harder to play rather than arithmetically out of reach.
 const DANGER_LEVELS := 6
-const DANGER_HP := 0.24
+const DANGER_HP := 0.18
 const DANGER_SPEED := 0.05
-const DANGER_SPAWN := 0.09
-const DANGER_MATERIALS := 0.16
+const DANGER_SPAWN := 0.06
+const DANGER_MATERIALS := 0.26
 
 static func danger_hp(danger: int) -> float:
 	return 1.0 + float(danger) * DANGER_HP
@@ -131,7 +167,9 @@ static func elite_chance(round_number: int) -> float:
 	return minf(ELITE_CHANCE_BASE + float(round_number) * ELITE_CHANCE_PER_ROUND, ELITE_CHANCE_MAX)
 
 static func intensity(round_number: int) -> float:
-	return pow(ROUND_INTENSITY, round_number - 1)
+	if round_number <= INTENSITY_SOFTENS_AT:
+		return pow(ROUND_INTENSITY, round_number - 1)
+	return pow(ROUND_INTENSITY, INTENSITY_SOFTENS_AT - 1) * pow(ROUND_INTENSITY_LATE, round_number - INTENSITY_SOFTENS_AT)
 
 static func enemy_hp(round_number: int, type_multiplier: float) -> float:
 	var base := ENEMY_HP_BASE + ENEMY_HP_PER_ROUND * float(round_number)

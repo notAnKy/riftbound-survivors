@@ -313,6 +313,7 @@ func finish_wave() -> void:
 		who.ready = false
 		who.shop.allowed_kinds = who.allowed_kinds
 		who.shop.owned_classes = class_counts(who).keys()
+		who.shop.owned_items = who.items.size()
 		who.shop.open(rng, round_number, who.stats.get_stat("luck"))
 	audio.play("wave_clear")
 	wave_cleared.emit()
@@ -386,6 +387,7 @@ func reroll_shop(at_seat: int = 0) -> bool:
 	if who.materials < cost: return false
 	who.materials -= cost
 	who.shop.owned_classes = class_counts(who).keys()
+	who.shop.owned_items = who.items.size()
 	who.shop.reroll(rng, round_number, who.stats.get_stat("luck"))
 	audio.play("reroll")
 	return true
@@ -523,10 +525,10 @@ func spawn_enemies(delta: float) -> void:
 	if spawn_timer > 0.0: return
 	# Two players kill far faster than one, so the crowd arrives faster too.
 	var crowd := 1.0 + Balance.COOP_SPAWN * float(maxi(0, survivors.size() - 1))
-	spawn_timer = maxf(Balance.SPAWN_INTERVAL_MIN, Balance.SPAWN_INTERVAL / Balance.intensity(round_number) * Balance.danger_spawn(danger) / crowd)
+	spawn_timer = Balance.spawn_interval(round_number, danger) / crowd
 	var options := EnemyCatalog.available(round_number)
 	var elite_odds := Balance.elite_chance(round_number)
-	for count in range(1 + int(round_number / Balance.SPAWN_BATCH_EVERY)):
+	for count in range(Balance.spawn_batch(round_number)):
 		var def: Dictionary = options[rng.randi_range(0, options.size() - 1)]
 		spawn_enemy(def, spawn_point(), false, rng.randf() < elite_odds)
 
