@@ -21,31 +21,30 @@ void vertex() {
 	tint = COLOR;
 }
 
-// Outside the frame reads as empty rather than as a smeared edge pixel.
-float alpha_at(sampler2D tex, vec2 uv) {
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-		return 0.0;
-	}
-	return texture(tex, uv).a;
-}
-
+// Outside the frame reads as empty rather than as a smeared edge pixel. Written
+// inline rather than as a helper: passing TEXTURE into a function makes Godot
+// treat it as a custom sampler and complain on every compile.
 void fragment() {
 	vec2 grow = TEXTURE_PIXEL_SIZE * width;
 	float inset = 1.0 - 2.0 * max(grow.x, grow.y);
 	vec2 uv = (UV - 0.5) / inset + 0.5;
 
-	float here = alpha_at(TEXTURE, uv);
+	vec2 safe = clamp(uv, vec2(0.0), vec2(1.0));
+	float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+	float here = texture(TEXTURE, safe).a * inside;
 	// Eight samples on a ring: enough for a smooth line at this thickness, and
 	// cheap enough to run on several hundred enemies at once.
 	float ring = 0.0;
 	for (int i = 0; i < 8; i++) {
 		float a = float(i) * 0.7853981;
-		ring = max(ring, alpha_at(TEXTURE, uv + vec2(cos(a), sin(a)) * grow));
+		vec2 at = uv + vec2(cos(a), sin(a)) * grow;
+		float on = step(0.0, at.x) * step(at.x, 1.0) * step(0.0, at.y) * step(at.y, 1.0);
+		ring = max(ring, texture(TEXTURE, clamp(at, vec2(0.0), vec2(1.0))).a * on);
 	}
 	// Written as a branch rather than an early exit: Godot's shading language
 	// does not allow `return` inside a processor function.
 	if (here > 0.5) {
-		COLOR = texture(TEXTURE, clamp(uv, vec2(0.0), vec2(1.0))) * tint;
+		COLOR = texture(TEXTURE, safe) * tint;
 	} else {
 		COLOR = vec4(outline_color.rgb, outline_color.a * smoothstep(0.15, 0.6, ring) * tint.a);
 	}

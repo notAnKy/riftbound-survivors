@@ -36,6 +36,8 @@ var selected_gun := 0
 var selected_character := 0
 var danger := 0
 var last_reward := 0
+# Achievements the run that just ended earned, so the end screen can say so.
+var last_earned: Array[String] = []
 var rift_effects_enabled := true
 var profile := ProfileManager.new()
 var menu_hover := ""
@@ -196,7 +198,7 @@ func mouse_active() -> bool:
 func menu_items(at_seat: int = 0) -> Array[String]:
 	var items: Array[String] = []
 	match state:
-		"title": items.assign(["play", "coop", "armory", "settings", "quit"])
+		"title": items.assign(["play", "coop", "armory", "awards", "settings", "quit"])
 		"settings", "settings_pause": items.assign(["sfx", "music", "rift", "fullscreen", "back"])
 		"paused": items.assign(["resume", "settings", "menu"])
 		"confirm_quit": items.assign(["quit_run", "keep_playing"])
@@ -375,8 +377,9 @@ func start_run(two_player: bool = false) -> void:
 	coop = two_player
 	if not profile.is_gun_unlocked(selected_gun):
 		if not profile.unlock_gun(selected_gun, int(GunCatalog.get_gun(selected_gun).cost)): return
-	if not profile.is_character_unlocked(selected_character):
-		if not profile.unlock_character(selected_character, int(CharacterCatalog.get_character(selected_character).cost)): return
+	# Characters are earned now, not bought, so this refuses rather than silently
+	# starting a run as somebody the player has not unlocked.
+	if not profile.is_character_unlocked(selected_character): return
 	session.selected_gun = selected_gun
 	session.selected_character = selected_character
 	session.danger = danger
@@ -395,6 +398,8 @@ func start_run(two_player: bool = false) -> void:
 func on_run_ended() -> void:
 	last_reward = session.round_number * 4 + int(session.kills / 4) + danger * 6
 	profile.add_coins(last_reward)
+	last_earned = profile.award_all(session.run_summary())
+	if not last_earned.is_empty(): audio.play("level_up")
 	state = "game_over"
 
 func on_run_won() -> void:
@@ -403,6 +408,7 @@ func on_run_won() -> void:
 	last_reward = 120 + danger * 45 + int(session.kills / 4)
 	profile.add_coins(last_reward)
 	profile.record_victory(danger)
+	last_earned = profile.award_all(session.run_summary())
 	state = "victory"
 
 func set_danger(value: int) -> void:
@@ -450,6 +456,7 @@ func handle_menu_action(action: String, at_seat: int = 0) -> void:
 		"play": start_run(false)
 		"coop": open_lobby()
 		"armory": state = "armory"
+		"awards": state = "awards"
 		"settings": open_settings()
 		"sfx", "music": set_slider(action, 0.0 if slider_value(action) > 0.0 else 0.7)
 		"rift": toggle_rift_effects()
@@ -487,8 +494,13 @@ func focused_offer(at_seat: int) -> int:
 func clamp_focus(at_seat: int = 0) -> void:
 	set_cursor(at_seat, clampi(cursor(at_seat), 0, maxi(0, menu_items(at_seat).size() - 1)))
 
+# Walks only what is unlocked, so the armory cannot settle on somebody the
+# player has not earned.
 func cycle_character(step: int) -> void:
-	selected_character = wrapi(selected_character + step, 0, CharacterCatalog.all().size())
+	var owned: Array = profile.unlocked_guns_or_characters("characters")
+	var at := owned.find(selected_character)
+	at = 0 if at < 0 else wrapi(at + step, 0, owned.size())
+	selected_character = int(owned[at])
 	audio.play("ui_move")
 
 func cycle_gun(step: int) -> void:
@@ -728,7 +740,7 @@ func handle_verb(verb: String, at_seat: int = 0) -> bool:
 			"confirm_quit":
 				state = "paused"
 				return true
-			"game_over", "victory":
+			"game_over", "victory", "awards":
 				state = "title"
 				return true
 			# The shop and the level-up screen are each a decision the player
@@ -737,6 +749,9 @@ func handle_verb(verb: String, at_seat: int = 0) -> bool:
 				return true
 	if verb == "confirm":
 		match state:
+			"awards":
+				state = "title"
+				return true
 			"game_over":
 				start_run(coop)
 				return true
@@ -789,6 +804,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif key.keycode == KEY_A: handle_menu_action("armory")
 		elif key.keycode == KEY_S: handle_menu_action("settings")
 		elif key.keycode == KEY_Q: handle_menu_action("quit")
+	elif state == "awards":
+		if key.keycode == KEY_B: state = "title"
 	elif state == "armory":
 		if key.keycode >= KEY_1 and key.keycode <= KEY_3: selected_gun = key.keycode - KEY_1
 		elif key.keycode == KEY_C: cycle_character(1)

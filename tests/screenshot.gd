@@ -54,6 +54,12 @@ func capture() -> void:
 	await settle(3)
 	await shoot("02_armory")
 
+	game.profile.data.achievements = ["first_blood", "rift_walker", "boss_slayer", "arsenal"]
+	game.state = "awards"
+	await settle(3)
+	await shoot("18_achievements")
+	game.state = "title"
+
 	# The co-op lobby, drawn on a cold boot: this is what CO-OP off the title
 	# screen actually reaches, with no run and so no survivors to read from.
 	game.profile.data.unlocked_characters = [0, 1, 2, 3]

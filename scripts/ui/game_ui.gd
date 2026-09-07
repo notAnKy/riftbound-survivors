@@ -79,6 +79,7 @@ func _draw() -> void:
 	if game.state == "title": draw_title()
 	elif game.state == "lobby": draw_lobby()
 	elif game.state == "armory": draw_armory()
+	elif game.state == "awards": draw_awards()
 	elif game.state == "settings": draw_settings("SETTINGS", "ESC: back to title")
 	else:
 		# These three are full screens with their own headers and panels, so the
@@ -381,11 +382,11 @@ func fill_screen(color: Color) -> void:
 
 const TITLE_LABELS := {
 	"play": "PLAY", "coop": "CO-OP  (2 PLAYERS)", "armory": "ARMORY",
-	"settings": "SETTINGS", "quit": "QUIT GAME",
+	"settings": "SETTINGS", "awards": "ACHIEVEMENTS", "quit": "QUIT GAME",
 }
 const TITLE_COLORS := {
 	"play": Color("69f4d4"), "coop": Color("ffcf77"), "armory": Color("bf8cff"),
-	"settings": Color("82b7ff"), "quit": Color("ff718b"),
+	"settings": Color("82b7ff"), "awards": Color("ffcf77"), "quit": Color("ff718b"),
 }
 
 func draw_title() -> void:
@@ -538,7 +539,11 @@ func draw_armory() -> void:
 	if not kinds.is_empty(): shape += "  •  %s weapons only" % String(kinds[0]).to_upper()
 	text_at(panel.position + Vector2(40, 122), shape, 15, Color("ffcf77"))
 	text_at(panel.position + Vector2(320, 122), perks if perks != "" else "No stat modifiers", 15, Color("9fb3d9"))
-	text_right(panel.end.x - 40, panel.position.y + 122, "READY" if game.profile.is_character_unlocked(game.selected_character) else "UNLOCK  %d COINS" % character.cost, 15, Color("ffcf77"))
+	# What to go and do, rather than a price: characters are earned now.
+	var earned := game.profile.is_character_unlocked(game.selected_character)
+	var opener := AchievementCatalog.unlocker_for(game.selected_character)
+	var gate: String = "READY" if earned else ("LOCKED  —  %s" % String(opener.description) if not opener.is_empty() else "LOCKED")
+	text_right(panel.end.x - 40, panel.position.y + 122, gate, 15, Color("ffcf77") if earned else Color("ff9aa8"))
 	text_centered(SCREEN.x * 0.5, 762, "DANGER  —  arrows or click", 15, Color("8ea4cb"))
 	for i in range(Balance.DANGER_LEVELS):
 		var chip := danger_rect(i)
@@ -550,6 +555,45 @@ func draw_armory() -> void:
 	text_centered(SCREEN.x * 0.5, 872, "Press PLAY from the main menu to begin", 18, Color("aabce1"))
 	draw_hint_row(SCREEN.x * 0.5, 934, [["nav", "ARROWS", "DANGER / SURVIVOR"],
 		["alt", "C", "NEXT WEAPON"], ["back", "ESC", "BACK"]])
+
+# What the profile has done, and what is still out there. Read-only: a record,
+# not a screen you can act on.
+func draw_awards() -> void:
+	draw_menu_background()
+	heading(SCREEN.x * 0.5, 130, "ACHIEVEMENTS", 42, Color("ffcf77"))
+	var all := AchievementCatalog.all()
+	var done := 0
+	for def in all:
+		if game.profile.has_achievement(String(def.id)): done += 1
+	text_centered(SCREEN.x * 0.5, 176, "%d of %d earned" % [done, all.size()], 20, Color("aabce1"))
+	for i in range(all.size()):
+		draw_award_row(i, all[i])
+	draw_hint_row(SCREEN.x * 0.5, 1006, [["back", "ESC", "BACK"]])
+
+func award_row_rect(index: int) -> Rect2:
+	var size := Vector2(880, 62)
+	var total := size.x * 2.0 + 32.0
+	return Rect2(Vector2((SCREEN.x - total) * 0.5 + float(index % 2) * (size.x + 32.0),
+		236.0 + float(index / 2) * (size.y + 14.0)), size)
+
+func draw_award_row(index: int, def: Dictionary) -> void:
+	var rect := award_row_rect(index)
+	var earned: bool = game.profile.has_achievement(String(def.id))
+	var accent := Color("ffcf77") if earned else Color("46526e")
+	draw_panel(rect, Color(0.10, 0.13, 0.22, 0.95) if earned else Color(0.05, 0.07, 0.12, 0.8), accent, 2.0 if earned else 1.0)
+	# A filled pip reads as done at a glance, which is what a list like this is for.
+	var pip := Vector2(rect.position.x + 30.0, rect.get_center().y)
+	draw_circle(pip, 9.0, Color(accent.r, accent.g, accent.b, 0.22))
+	if earned: draw_circle(pip, 5.0, accent)
+	else: draw_arc(pip, 5.0, 0.0, TAU, 14, accent, 1.5)
+	text_at(Vector2(rect.position.x + 54.0, rect.get_center().y - 2.0), String(def.name), 18,
+		Color("f1f5ff") if earned else Color("7f8db0"))
+	text_at(Vector2(rect.position.x + 54.0, rect.get_center().y + 20.0), String(def.description), 14, Color("9fb3d9"))
+	var opens := int(def.unlocks)
+	if opens >= 0:
+		text_right(rect.end.x - 22.0, rect.get_center().y + 6.0,
+			"UNLOCKS  %s" % String(CharacterCatalog.get_character(opens).name), 14,
+			Color("69f4d4") if earned else Color("54617d"))
 
 func draw_menu_background() -> void:
 	fill_screen(Color("0b1020"))
@@ -966,6 +1010,7 @@ func draw_game_over() -> void:
 	fill_screen(Color(0.03,0.01,0.07,0.82))
 	heading(SCREEN.x * 0.5, 200, "THE RIFT CONSUMES YOU", 38, Color("ff7590"))
 	draw_run_summary(250.0)
+	draw_earned_banner(922)
 	draw_hint_row(SCREEN.x * 0.5, 966, [["confirm", "SPACE", "RUN AGAIN"], ["back", "ESC", "MAIN MENU"]], 18)
 
 func draw_victory() -> void:
@@ -978,6 +1023,14 @@ func draw_victory() -> void:
 	if next_danger < Balance.DANGER_LEVELS and game.profile.max_danger() >= next_danger:
 		text_centered(SCREEN.x * 0.5, 920, "DANGER %d UNLOCKED" % next_danger, 24, Color("ffcf77"))
 	draw_hint_row(SCREEN.x * 0.5, 966, [["confirm", "SPACE", "BACK TO TITLE"]], 18)
+
+# What this run earned, on the screen that ends it: an achievement nobody is
+# told about is not one.
+func draw_earned_banner(y: float) -> void:
+	if game.last_earned.is_empty(): return
+	var names: Array[String] = []
+	for id in game.last_earned: names.append(String(AchievementCatalog.get_achievement(String(id)).name))
+	text_centered(SCREEN.x * 0.5, y, "UNLOCKED:  %s" % "   •   ".join(names), 20, Color("ffcf77"))
 
 # Shared by the death and victory screens: what the run actually was, since a
 # number on its own says nothing about the build that produced it.

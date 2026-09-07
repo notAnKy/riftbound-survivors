@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 331
+const EXPECTED_CHECKS := 346
 var checks := 0
 
 func _initialize() -> void:
@@ -29,6 +29,10 @@ func fresh_game() -> Node:
 	root.add_child(game)
 	await process_frame
 	game.profile.persist = false
+	# Characters are unlocked by achievement now. These tests are about
+	# mechanics, not progression, so the harness owns the whole roster; the
+	# gate has its own test.
+	game.profile.data.unlocked_characters = [0, 1, 2, 3, 4, 5]
 	game.state = "playing"
 	game.start_run()
 	await step(2)
@@ -70,6 +74,7 @@ func bootstrap() -> void:
 	await test_victory_ends_the_run()
 	await test_danger_levels()
 	test_profile_persistence()
+	await test_achievements()
 	test_every_icon_exists()
 	await test_audio_banks()
 	await test_music()
@@ -791,6 +796,61 @@ func test_profile_persistence() -> void:
 
 # Adding a weapon or item without its icon would otherwise only show up as a
 # blank space on a shop card, which is easy to miss.
+# Characters are earned, not bought. A price only asks for time; an achievement
+# asks for something the player has not done yet.
+func test_achievements() -> void:
+	var game = await fresh_game()
+	game.profile.data.unlocked_characters = [0]
+	game.profile.data.achievements = []
+	var s = game.session
+
+	check("only the first survivor is free at the start",
+		game.profile.is_character_unlocked(0) and not game.profile.is_character_unlocked(1))
+	# every achievement that opens a character must be reachable, and no two may
+	# open the same one, or a character would be unreachable
+	var opened: Array[int] = []
+	for def in AchievementCatalog.all():
+		if int(def.unlocks) >= 0:
+			check("%s opens exactly one survivor" % def.id, not (int(def.unlocks) in opened))
+			opened.append(int(def.unlocks))
+	var missing: Array[int] = []
+	for i in range(1, CharacterCatalog.all().size()):
+		if not (i in opened): missing.append(i)
+	check("every locked survivor has a way in (%s)" % str(missing), missing.is_empty())
+
+	# a run that reaches wave 5 earns the wave-5 award and opens what it opens
+	s.round_number = 5
+	var earned: Array = game.profile.award_all(s.run_summary())
+	check("reaching wave 5 earns it (%s)" % str(earned), "rift_walker" in earned)
+	var opens := int(AchievementCatalog.get_achievement("rift_walker").unlocks)
+	check("and unlocks its survivor (%d)" % opens, game.profile.is_character_unlocked(opens))
+	check("it is not earned twice", game.profile.award_all(s.run_summary()).is_empty())
+	# one run can satisfy several at once
+	check("wave 5 also cleared the wave-1 award", game.profile.has_achievement("first_blood"))
+	check("but not one it did not meet", not game.profile.has_achievement("deep_run"))
+
+	# the armory refuses a survivor that has not been earned
+	game.state = "title"
+	game.selected_character = CharacterCatalog.all().size() - 1
+	game.profile.data.unlocked_characters = [0]
+	game.start_run()
+	check("a locked survivor cannot be taken into a run (%s)" % game.state, game.state != "playing")
+	# and cycling in the armory never lands on one
+	game.state = "armory"
+	game.selected_character = 0
+	var strayed := false
+	for i in range(10):
+		game.cycle_character(1)
+		if not game.profile.is_character_unlocked(game.selected_character): strayed = true
+	check("the armory only walks what is unlocked", not strayed)
+
+	# a truncated or tampered profile drops ids that are not in the catalog
+	var raw := {"achievements": ["rift_walker", "not_a_real_award", 7]}
+	game.profile.data = game.profile.sanitized(raw)
+	check("unknown achievements are dropped on read (%s)" % str(game.profile.achievements()),
+		game.profile.achievements() == ["rift_walker"])
+	game.free()
+
 func test_every_icon_exists() -> void:
 	var missing: Array[String] = []
 	for def in WeaponCatalog.all():

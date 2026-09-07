@@ -36,6 +36,9 @@ var seat_guns: Array[int] = []
 var run_time := 0.0
 var spawn_timer := 0.0
 var kills := 0
+# Bosses actually put down this run, which is a thing an achievement asks for
+# and nothing else was counting.
+var bosses_killed := 0
 var round_number := 1
 var round_duration := 40.0
 var round_length := 40.0
@@ -208,6 +211,7 @@ func reset_run() -> void:
 	run_time = 0.0
 	spawn_timer = 0.0
 	kills = 0
+	bosses_killed = 0
 	round_number = 1
 	round_length = round_duration
 	round_time_left = round_length
@@ -368,6 +372,25 @@ func heal_between_waves() -> void:
 		var flat := who.player.max_hp * Balance.WAVE_CLEAR_HEAL
 		var missing := maxf(0.0, who.player.max_hp - who.player.hp) * Balance.WAVE_CLEAR_HEAL_MISSING
 		who.player.heal(flat + missing)
+
+# What the run was, for AchievementCatalog to read. Every value is a high-water
+# mark across both seats, so a co-op run is judged on what the pair managed.
+func run_summary() -> Dictionary:
+	var best_weapons := 0
+	var best_tier := 0
+	for who in survivors:
+		best_weapons = maxi(best_weapons, who.weapons.size())
+		for weapon in who.weapons: best_tier = maxi(best_tier, weapon.tier)
+	return {
+		"wave": round_number,
+		"kills": kills,
+		"bosses": bosses_killed,
+		"weapons": best_weapons,
+		"tier": best_tier,
+		"danger": danger,
+		"coop": 1 if coop else 0,
+		"won": 1 if round_phase == "won" else 0,
+	}
 
 # --- shop transactions -------------------------------------------------------
 
@@ -759,6 +782,7 @@ func on_enemy_shot(from: Vector2, direction: Vector2, damage: float, shot_speed:
 
 func on_enemy_died(at: Vector2, material_value: int, was_boss: bool, definition: Dictionary = {}) -> void:
 	kills += 1
+	if was_boss: bosses_killed += 1
 	if definition.has("explodes"): explode(at, definition.explodes)
 	if definition.has("splits"): split(at, definition.splits)
 	audio.play("kill")

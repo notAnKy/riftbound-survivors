@@ -7,6 +7,7 @@ const DEFAULTS := {
 	"coins": 0,
 	"unlocked_guns": [0],
 	"unlocked_characters": [0],
+	"achievements": [],
 	"max_danger": 0,
 	"rift_effects": true,
 	"fullscreen": false,
@@ -39,6 +40,15 @@ func sanitized(parsed: Dictionary) -> Dictionary:
 	if danger_value is float or danger_value is int:
 		clean.max_danger = clampi(int(danger_value), 0, Balance.DANGER_LEVELS - 1)
 	clean.unlocked_guns = sanitized_unlocks(parsed.get("unlocked_guns"), GunCatalog.all().size())
+	# Validated like everything else that comes off disk: an id that is no longer
+	# in the catalog is dropped rather than carried around forever.
+	var earned: Array = []
+	var raw = parsed.get("achievements")
+	if raw is Array:
+		for id in raw:
+			if id is String and AchievementCatalog.get_achievement(String(id)).id == id:
+				if not (id in earned): earned.append(String(id))
+	clean.achievements = earned
 	clean.unlocked_characters = sanitized_unlocks(parsed.get("unlocked_characters"), CharacterCatalog.all().size())
 	for flag in ["rift_effects", "fullscreen"]:
 		if parsed.get(flag) is bool: clean[flag] = parsed[flag]
@@ -74,6 +84,31 @@ func is_gun_unlocked(index: int) -> bool:
 
 func is_character_unlocked(index: int) -> bool:
 	return index in data.unlocked_characters
+
+func has_achievement(id: String) -> bool:
+	return id in data.achievements
+
+func achievements() -> Array:
+	return data.achievements
+
+# Records one achievement and opens whatever it unlocks. Returns true only the
+# first time, so the caller can make a noise about it exactly once.
+func award(id: String) -> bool:
+	if has_achievement(id): return false
+	data.achievements.append(id)
+	var def := AchievementCatalog.get_achievement(id)
+	var opens := int(def.unlocks)
+	if opens >= 0 and not (opens in data.unlocked_characters):
+		data.unlocked_characters.append(opens)
+	save_profile()
+	return true
+
+# Everything a finished run earned that had not been earned before.
+func award_all(summary: Dictionary) -> Array[String]:
+	var fresh: Array[String] = []
+	for id in AchievementCatalog.earned_by(summary):
+		if award(String(id)): fresh.append(String(id))
+	return fresh
 
 # The unlocked indices of either catalog, in order. The co-op lobby walks these
 # rather than the whole catalog, so a seat cannot settle on something unowned.
