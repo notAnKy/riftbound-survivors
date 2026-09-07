@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 320
+const EXPECTED_CHECKS := 322
 var checks := 0
 
 func _initialize() -> void:
@@ -702,7 +702,14 @@ func test_shake_and_hitstop() -> void:
 	check("but not the HUD", game.ui.position == Vector2.ZERO)
 	for i in range(120):
 		s._process(0.05)
-	check("it settles back to nothing (%.1f, %s)" % [s.shake, s.position], is_zero_approx(s.shake) and s.position == Vector2.ZERO)
+	# Back to where the session sits, which is not the origin: it is offset and
+	# scaled so the oversized arena lands on Arena.VIEW.
+	check("it settles back to rest (%.1f, %s)" % [s.shake, s.position],
+		is_zero_approx(s.shake) and s.position.is_equal_approx(s.view_origin))
+	check("and the arena is drawn exactly onto its view",
+		s.position.is_equal_approx(Arena.VIEW.position - Arena.BOUNDS.position * s.scale.x)
+		and is_equal_approx(Arena.BOUNDS.size.x * s.scale.x, Arena.VIEW.size.x)
+		and is_equal_approx(Arena.BOUNDS.size.y * s.scale.y, Arena.VIEW.size.y))
 
 	s.hit_stop(0.05)
 	check("hit stop slows time (%.2f)" % Engine.time_scale, Engine.time_scale < 1.0)
@@ -1133,9 +1140,14 @@ func test_pinning_an_offer() -> void:
 	board.locked[1] = true
 	s.buy(1, 0)
 	check("buying a pinned offer releases it", not board.is_locked(1))
-	# a new wave is a new decision
+	# and a pin survives into the next wave's board: saving up for something you
+	# cannot afford yet is the reason to pin it in the first place
+	board.locked[2] = true
+	var saved: String = String(board.offers[2].id)
 	s.finish_wave()
-	check("and a new wave clears every pin", not board.is_locked(0) and board.has_unlocked_offer())
+	check("a pin survives into the next wave (%s)" % board.offers[2].id,
+		board.is_locked(2) and String(board.offers[2].id) == saved)
+	check("while the rest of the board is new", board.has_unlocked_offer())
 	game.free()
 
 # --- co-op: two players, one arena -------------------------------------------

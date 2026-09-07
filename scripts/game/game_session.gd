@@ -45,6 +45,10 @@ var selected_gun := 0
 var selected_character := 0
 var danger := 0
 var shake := 0.0
+# Where the session sits once it has been scaled so the oversized arena lands
+# exactly on Arena.VIEW. Actors, pickups and projectiles are all children and
+# come along with it; the HUD is a sibling and keeps its own coordinates.
+var view_origin := Vector2.ZERO
 var hitstop_until := 0
 var rng := RandomNumberGenerator.new()
 var audio: AudioSfx
@@ -159,8 +163,17 @@ func player_nodes() -> Array:
 
 func _ready() -> void:
 	rng.randomize()
+	fit_view()
 	audio = get_node("../AudioSfx") as AudioSfx
 	rift_effects_enabled = rift_effects_enabled
+
+# The arena is larger than the screen in world units, so the session is scaled
+# down until it lands on Arena.VIEW.
+func fit_view() -> void:
+	var k := Arena.VIEW.size.x / Arena.BOUNDS.size.x
+	scale = Vector2(k, k)
+	view_origin = Arena.VIEW.position - Arena.BOUNDS.position * k
+	position = view_origin
 
 # Shake offsets the whole session node, which carries the arena and every
 # actor but not the HUD -- that lives on a sibling and has to stay still.
@@ -174,9 +187,9 @@ func hit_stop(seconds: float) -> void:
 func _process(delta: float) -> void:
 	if shake > 0.0:
 		shake = maxf(0.0, shake - Balance.SHAKE_DECAY * delta)
-		position = Vector2(randf_range(-shake, shake), randf_range(-shake, shake))
-	elif position != Vector2.ZERO:
-		position = Vector2.ZERO
+		position = view_origin + Vector2(randf_range(-shake, shake), randf_range(-shake, shake))
+	elif position != view_origin:
+		position = view_origin
 
 func reset_run() -> void:
 	for group in [actors, shots, pickups, numbers]:
@@ -200,7 +213,7 @@ func reset_run() -> void:
 	round_time_left = round_length
 	round_phase = "combat"
 	shake = 0.0
-	position = Vector2.ZERO
+	position = view_origin
 
 # One seat's body and starting kit. Both seats take the armory's character and
 # weapon: picking one each would need a second armory screen, and that is not

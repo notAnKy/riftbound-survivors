@@ -1,7 +1,15 @@
 class_name Arena
 extends Node2D
 
-const BOUNDS := Rect2(40, 120, 1840, 890)
+# The rectangle the arena occupies *on screen*, which is all the room the HUD
+# leaves. It cannot grow: the bars and the wave clock live in the margins.
+const VIEW := Rect2(40, 120, 1840, 890)
+# So the playfield is bigger than the space it is drawn in, and GameSession
+# scales the whole session down to fit. That is what buys room to move without
+# taking a pixel from the HUD -- everything simply renders a little smaller.
+# Must stay proportional to VIEW, or the two axes would not fit at one scale.
+const GROWTH := 1.12
+const BOUNDS := Rect2(VIEW.position, VIEW.size * GROWTH)
 const WALL_THICKNESS := 60.0
 
 # Scattered decoration. Purely visual -- no collision, and drawn under the
@@ -13,7 +21,7 @@ const PROPS := [
 	{"texture": "prop_barrel", "tint": Color(0.80, 0.62, 0.52, 0.85)},
 	{"texture": "prop_growth", "tint": Color(0.38, 0.95, 0.88, 0.75)},
 ]
-const PROP_COUNT := 15
+const PROP_COUNT := 18
 const PROP_SEED := 20260906
 
 func _ready() -> void:
@@ -77,9 +85,12 @@ func scatter_props() -> void:
 func _draw() -> void:
 	# A flat fill read as empty space. A soft radial keeps the eye on the arena
 	# and gives the dark edges somewhere to go.
-	draw_rect(Rect2(Vector2.ZERO, GameUI.SCREEN), Color("0a0e1f"))
+	# Drawn well past the screen: the session is scaled down to fit the arena, so
+	# a rect the size of the screen in world units no longer reaches its edges.
+	draw_rect(Rect2(-600, -600, GameUI.SCREEN.x + 1200, GameUI.SCREEN.y + 1200), Color("0a0e1f"))
 	var centre := BOUNDS.get_center()
 	for i in range(7):
 		var t := float(i) / 6.0
-		var radius: float = 620.0 + t * 900.0
+		# Proportional to the arena, so the glow keeps its shape as it grows.
+		var radius: float = BOUNDS.size.x * (0.34 + t * 0.49)
 		draw_circle(centre, radius, Color(0.16, 0.20, 0.42, 0.055 * (1.0 - t)))

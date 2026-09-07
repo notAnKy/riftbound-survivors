@@ -42,8 +42,11 @@ func reroll_cost() -> int:
 func open(rng: RandomNumberGenerator, wave: int, luck: float) -> void:
 	rerolls = 0
 	round_number = wave
-	# A pin is for this board only; a new wave is a new decision.
-	locked = [false, false, false, false]
+	# Pins survive into the next wave's board, not just the next reroll. Pinning
+	# something you cannot afford yet and saving up for it is the whole point,
+	# and clearing them here made that impossible. roll() carries them across;
+	# the price they were pinned at comes with them, paid for by the slot they
+	# go on occupying.
 	roll(rng, wave, luck)
 
 func is_locked(index: int) -> bool:
