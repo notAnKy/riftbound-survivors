@@ -129,7 +129,11 @@ func _physics_process(delta: float) -> void:
 	var to_player := player.global_position - global_position
 	var distance := to_player.length()
 	var direction := to_player / maxf(distance, 0.001)
-	sprite.rotation = direction.angle()
+	# Flipped, not rotated. These sprites face the camera rather than a
+	# direction, and spinning a front-facing character reads as a compass
+	# needle. A near-vertical approach keeps whichever way it was already
+	# facing, so an enemy directly above does not flicker between the two.
+	if absf(direction.x) > 0.08: sprite.flip_h = direction.x < 0.0
 	match behaviour:
 		"weave":
 			velocity = direction.rotated(sin(age * 5.0 + wobble) * 0.7) * speed

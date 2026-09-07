@@ -1,13 +1,26 @@
 # Third-party assets
 
-## Kenney — Topdown Shooter
+## Kenney — Tiny Dungeon
 
-- Source: https://kenney.nl/assets/top-down-shooter
-- Download mirror used: https://opengameart.org/content/topdown-shooter
-- License: CC0 1.0 Universal (public domain)
+- Source: https://kenney.nl/assets/tiny-dungeon
+- License: CC0 1.0 Universal (public domain), per the pack's own `License.txt`
 - Author: Kenney / Kenney.nl
 
-This project includes a curated subset of the pack at `assets/sprites/` (survivor, zombie, robot, and warden sprites), plus the original `License.txt`. Attribution is not required by CC0, but this credit is retained as a courtesy.
+Every actor, prop and floor tile in `assets/sprites/` comes from this pack. The
+tiles are 16x16 in the original; each one used here was scaled up with
+nearest-neighbour filtering (3x for actors, 4x for props and floor) and saved
+under the name the catalogs already used. Nothing else was changed.
+
+Attribution is not required by CC0. It is kept as a courtesy, and because a
+build that goes to other people should be able to say where its art came from.
+
+## Kenney — Topdown Shooter *(no longer used)*
+
+- Source: https://kenney.nl/assets/top-down-shooter
+- License: CC0 1.0 Universal (public domain)
+
+The sprites this project shipped with until the Tiny Dungeon swap. The raw pack
+is still in `assets/kenney/` and nothing loads from it.
 
 ## game-icons.net — weapon and item icons
 

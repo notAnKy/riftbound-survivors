@@ -76,7 +76,9 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	queue_redraw()
 
-# Sprites in the Kenney pack are drawn facing +X, so an angle is all it takes.
+# Sprites face the camera, so they flip rather than turn. The weapon rack drawn
+# round the character still rotates -- those are icons of guns, and a gun does
+# point somewhere.
 # Drawn on the player itself, which renders before its Sprite child, so the
 # rack sits behind the character rather than covering it.
 func _draw() -> void:
@@ -106,10 +108,11 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func aim_at(target: Vector2) -> void:
-	($Sprite as Sprite2D).rotation = (target - global_position).angle()
+	var toward := target.x - global_position.x
+	if absf(toward) > 2.0: ($Sprite as Sprite2D).flip_h = toward < 0.0
 
 func face_travel() -> void:
-	($Sprite as Sprite2D).rotation = last_move.angle()
+	if absf(last_move.x) > 0.08: ($Sprite as Sprite2D).flip_h = last_move.x < 0.0
 
 func dash() -> bool:
 	if dash_cooldown > 0.0 or not alive: return false

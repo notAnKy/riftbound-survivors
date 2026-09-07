@@ -11,3 +11,6 @@ Thumbs.db
 
 # Redundant: every file in it is already extracted alongside it
 assets/kenney/topdown-shooter.zip
+
+# The raw asset pack. Only the tiles copied into assets/sprites/ are used.
+assets/incoming/

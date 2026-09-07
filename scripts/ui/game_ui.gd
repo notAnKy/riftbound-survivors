@@ -1061,11 +1061,16 @@ func draw_run_summary(top: float) -> void:
 		text_at(slot.position + Vector2(58, 24), weapon.display_name(), 16, weapon.def().color)
 		text_at(slot.position + Vector2(58, 45), "%.0f dmg" % WeaponCatalog.damage_at(weapon.id, weapon.tier), 13, Color("9fb3d9"))
 
-	text_at(Vector2(left, top + 312), "ITEMS", 15, Color("8ea4cb"))
+	# Placed under however many rows the rack actually took, not at a fixed
+	# offset that assumes two. Same trap as the title screen's footer: a list
+	# drawn from real data with a layout around it that guesses the count.
+	var racks := maxi(2, int(ceil(float(s.weapons.size()) / 3.0)))
+	var items_top := top + 178.0 + float(racks) * 66.0
+	text_at(Vector2(left, items_top), "ITEMS", 15, Color("8ea4cb"))
 	if s.items.is_empty():
-		text_at(Vector2(left + 80, top + 312), "none", 15, Color("54617d"))
+		text_at(Vector2(left + 80, items_top), "none", 15, Color("54617d"))
 	var x := left
-	var y := top + 336.0
+	var y := items_top + 24.0
 	for id in s.items:
 		var def := ItemCatalog.get_item(id)
 		var width := text_width(String(def.name), 13) + 38.0
@@ -1077,9 +1082,9 @@ func draw_run_summary(top: float) -> void:
 		text_at(Vector2(x + 29, y + 19), String(def.name), 13, Color("c8d3ed"))
 		x += width + 8.0
 
-	text_at(Vector2(left, top + 494), "FINAL STATS", 15, Color("8ea4cb"))
+	text_at(Vector2(left, items_top + 182.0), "FINAL STATS", 15, Color("8ea4cb"))
 	var parts: Array[String] = []
 	for stat in ["max_hp", "hp_regen", "damage", "attack_speed", "crit_chance", "armor", "dodge", "speed", "lifesteal", "attack_range", "harvesting", "luck"]:
 		if is_zero_approx(s.stats.get_stat(stat)): continue
 		parts.append("%s %s" % [Stats.LABELS[stat], s.stats.format(stat)])
-	draw_wrapped(Vector2(left, top + 522), "   •   ".join(parts), 15, Color("c8d3ed"), panel.size.x - 96.0)
+	draw_wrapped(Vector2(left, items_top + 210.0), "   •   ".join(parts), 15, Color("c8d3ed"), panel.size.x - 96.0)

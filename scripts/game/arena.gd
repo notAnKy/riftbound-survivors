@@ -19,12 +19,13 @@ const WALL_THICKNESS := 60.0
 # Heavily muted on purpose. These are ground texture, not objects: anything on
 # the floor as saturated as an enemy is competing with the one thing the player
 # actually has to look at. Brotato's floor is nearly flat grey for this reason.
+# Mushrooms only. Anything square scattered on a tiled floor reads as a patch of
+# different floor rather than as an object on it, which is worse than nothing;
+# the ground's own detail comes from the accent layer instead.
 const PROPS := [
-	{"texture": "prop_crate", "tint": Color(0.40, 0.39, 0.42, 0.62)},
-	{"texture": "prop_barrel", "tint": Color(0.44, 0.39, 0.36, 0.62)},
-	{"texture": "prop_growth", "tint": Color(0.34, 0.42, 0.40, 0.55)},
+	{"texture": "prop_growth", "tint": Color(0.86, 0.82, 0.76, 0.85)},
 ]
-const PROP_COUNT := 18
+const PROP_COUNT := 16
 const PROP_SEED := 20260906
 
 func _ready() -> void:
@@ -52,7 +53,7 @@ func _ready() -> void:
 func flatten_floor() -> void:
 	var wash := ColorRect.new()
 	wash.name = "Wash"
-	wash.color = Color(0.125, 0.135, 0.168, 0.84)
+	wash.color = Color(0.150, 0.150, 0.180, 0.60)
 	wash.position = BOUNDS.position
 	wash.size = BOUNDS.size
 	wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -98,8 +99,9 @@ func scatter_props() -> void:
 		var sprite := Sprite2D.new()
 		sprite.texture = load("res://assets/sprites/%s.png" % prop.texture)
 		sprite.position = spot
-		sprite.rotation = rng.randf_range(0.0, TAU)
-		sprite.scale = Vector2.ONE * rng.randf_range(0.8, 1.1)
+		# Quarter turns only: pixel art rotated off-axis turns into porridge.
+		sprite.rotation = float(rng.randi_range(0, 3)) * PI * 0.5
+		sprite.scale = Vector2.ONE
 		sprite.modulate = prop.tint
 		add_child(sprite)
 		placed += 1
