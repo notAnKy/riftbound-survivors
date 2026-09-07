@@ -6,7 +6,13 @@ extends RefCounted
 # stat block: fewer weapons, or only one verb allowed, forces a whole build.
 # An empty `kinds` means no restriction. `weapon` is the fallback starting
 # weapon when the armory pick is not allowed.
+static var _cache: Array[Dictionary] = []
+
 static func all() -> Array[Dictionary]:
+	if _cache.is_empty(): _cache = _definitions()
+	return _cache
+
+static func _definitions() -> Array[Dictionary]:
 	return [
 		{"name":"RIFT RUNNER", "description":"Balanced survivor", "cost":0,
 			"hp":100.0, "speed":290.0, "slots":6, "kinds":[], "weapon":"pistol",

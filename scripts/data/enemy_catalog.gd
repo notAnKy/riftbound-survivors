@@ -7,7 +7,20 @@ extends RefCounted
 # The unlock rounds are deliberately one apart from wave 5 onward. Wave 5
 # already carries the first boss and the spawn-batch step, and stacking two
 # new enemy types onto wave 6 as well is what made it a wall.
+static var _cache: Array[Dictionary] = []
+static var _by_id: Dictionary = {}
+static var _bosses: Array[Dictionary] = []
+
 static func all() -> Array[Dictionary]:
+	if _cache.is_empty(): _build()
+	return _cache
+
+static func _build() -> void:
+	_cache = _definitions()
+	_by_id = {}
+	for def in _cache: _by_id[String(def.id)] = def
+
+static func _definitions() -> Array[Dictionary]:
 	return [
 		{"id":"husk", "name":"HUSK", "texture":"zombie", "behaviour":"chase",
 			"hp":1.0, "speed":1.0, "radius":12.0, "scale":0.9, "damage":8.0,
@@ -43,12 +56,15 @@ static func all() -> Array[Dictionary]:
 	]
 
 static func get_enemy(id: String) -> Dictionary:
-	for def in all():
-		if def.id == id: return def
-	return all()[0]
+	if _by_id.is_empty(): _build()
+	return _by_id.get(id, _cache[0])
 
 # Bosses alternate by boss round, so wave 5 and wave 10 are not the same fight.
 static func bosses() -> Array[Dictionary]:
+	if _bosses.is_empty(): _bosses = _boss_definitions()
+	return _bosses
+
+static func _boss_definitions() -> Array[Dictionary]:
 	return [
 		{"id":"riftlord", "name":"RIFTLORD", "texture":"boss", "behaviour":"boss",
 			"hp":1.0, "speed":1.0, "radius":32.0, "scale":2.3, "damage":26.0,

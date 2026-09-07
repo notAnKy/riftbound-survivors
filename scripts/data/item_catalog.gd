@@ -10,7 +10,19 @@ extends RefCounted
 #   rebuilt from scratch rather than added to once.
 #
 # `min_round` gates the stronger items out of the first shop.
+static var _cache: Array[Dictionary] = []
+static var _by_id: Dictionary = {}
+
 static func all() -> Array[Dictionary]:
+	if _cache.is_empty(): _build()
+	return _cache
+
+static func _build() -> void:
+	_cache = _definitions()
+	_by_id = {}
+	for def in _cache: _by_id[String(def.id)] = def
+
+static func _definitions() -> Array[Dictionary]:
 	return [
 		{"id":"scrap_plate", "name":"SCRAP PLATE", "price":14, "min_round":1,
 			"stats":{"armor":4.0}, "color":Color("b6c6e8")},
@@ -71,9 +83,8 @@ static func all() -> Array[Dictionary]:
 	]
 
 static func get_item(id: String) -> Dictionary:
-	for def in all():
-		if def.id == id: return def
-	return all()[0]
+	if _by_id.is_empty(): _build()
+	return _by_id.get(id, _cache[0])
 
 static func available(round_number: int) -> Array[Dictionary]:
 	return all().filter(func(def: Dictionary) -> bool:

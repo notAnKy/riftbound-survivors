@@ -5,7 +5,13 @@ const CHOICES := 4
 
 # Level-up rewards are pure stat grants now, so they read from the same sheet
 # the shop items feed. Rarity decides how big the grant is, not what it does.
+static var _cache: Array[Dictionary] = []
+
 static func pool() -> Array[Dictionary]:
+	if _cache.is_empty(): _cache = _definitions()
+	return _cache
+
+static func _definitions() -> Array[Dictionary]:
 	return [
 		{"title":"PLASMA CORE", "stats":{"damage":7.0}, "rarity":"COMMON"},
 		{"title":"RUNE HASTE", "stats":{"attack_speed":8.0}, "rarity":"COMMON"},

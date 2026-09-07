@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 304
+const EXPECTED_CHECKS := 310
 var checks := 0
 
 func _initialize() -> void:
@@ -86,6 +86,7 @@ func bootstrap() -> void:
 	await test_enemy_roster()
 	await test_weapon_classes()
 	test_balance_curve()
+	test_catalogs_are_built_once()
 	test_profile_sanitizing()
 	# A GDScript runtime error aborts only the function it happened in, so a
 	# broken test just stops asserting and the suite still reads as green.
@@ -1358,6 +1359,27 @@ func test_coop_split_screen() -> void:
 	check("solo still lays four offers across the display",
 		is_equal_approx(game.ui.card_rect(0).position.y, game.ui.card_rect(3).position.y))
 	game.free()
+
+# The lookups are on the hot path: Weapon.def() goes through get_weapon on every
+# draw and every shot. Rebuilding the catalog per call cost 21us a lookup and
+# 0.72ms for one pass over a six-weapon rack; built once it is 0.045ms. If these
+# stop handing back the same object, something has gone back to rebuilding.
+func test_catalogs_are_built_once() -> void:
+	check("the weapon catalog is built once", is_same(WeaponCatalog.all(), WeaponCatalog.all()))
+	check("and looked up by id, not searched", is_same(WeaponCatalog.get_weapon("rifle"), WeaponCatalog.get_weapon("rifle")))
+	check("the item catalog too", is_same(ItemCatalog.all(), ItemCatalog.all())
+		and is_same(ItemCatalog.get_item("focus_lens"), ItemCatalog.get_item("focus_lens")))
+	check("and the enemies, bosses included", is_same(EnemyCatalog.all(), EnemyCatalog.all())
+		and is_same(EnemyCatalog.bosses(), EnemyCatalog.bosses()))
+	check("and the characters, guns and level-up pool",
+		is_same(CharacterCatalog.all(), CharacterCatalog.all())
+		and is_same(GunCatalog.all(), GunCatalog.all())
+		and is_same(UpgradeCatalog.pool(), UpgradeCatalog.pool()))
+	# A shared entry is only safe while nothing writes to one.
+	var before: float = float(WeaponCatalog.get_weapon("rifle").damage)
+	var offers := WeaponCatalog.of_kinds([])
+	check("a filtered view does not disturb the catalog (%.1f)" % before,
+		is_equal_approx(float(WeaponCatalog.get_weapon("rifle").damage), before) and not offers.is_empty())
 
 func test_shop_prices_climb() -> void:
 	var rng := RandomNumberGenerator.new()
