@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 322
+const EXPECTED_CHECKS := 331
 var checks := 0
 
 func _initialize() -> void:
@@ -49,6 +49,7 @@ func bootstrap() -> void:
 	await test_weapon_combining()
 	await test_combine_in_the_shop()
 	await test_pinning_an_offer()
+	await test_spawns_land_where_they_happened()
 	await test_coop_lobby()
 	await test_coop_two_players()
 	await test_coop_movement()
@@ -1132,6 +1133,28 @@ func test_pinning_an_offer() -> void:
 
 	# and it is reachable without a mouse
 	check("pinning is in the navigable list", game.menu_items().has("lock_1"))
+	# A pad should not have to walk the cursor onto the chip: Square pins
+	# whatever offer the cursor is on, from the card or from the chip itself.
+	game.set_cursor(0, game.menu_items().find("buy_3"))
+	check("the cursor on a card knows which offer it is on", game.focused_offer(0) == 3)
+	pad_press(game, Gamepad.SQUARE)
+	check("square pins the offer under the cursor", board.is_locked(3))
+	pad_press(game, Gamepad.SQUARE)
+	check("and unpins it again", not board.is_locked(3))
+	# Triangle rerolls, so it is not buried behind the cursor either.
+	var spun: String = String(board.offers[0].id)
+	var moved := false
+	for i in range(6):
+		pad_press(game, Gamepad.TRIANGLE)
+		if String(board.offers[0].id) != spun: moved = true
+	check("triangle rerolls the board", moved)
+	# and the shoulder leaves, without hunting for NEXT WAVE
+	game.state = "shop"
+	var wave: int = s.round_number
+	pad_press(game, Gamepad.R1)
+	check("the shoulder starts the next wave (%s)" % game.state,
+		game.state == "playing" and s.round_number == wave + 1)
+	game.state = "shop"
 	# pinning the whole board and paying to respin it changes nothing, so it is
 	# refused rather than quietly taking the materials
 	for i in range(Shop.SLOTS): board.locked[i] = true
@@ -1148,6 +1171,44 @@ func test_pinning_an_offer() -> void:
 	check("a pin survives into the next wave (%s)" % board.offers[2].id,
 		board.is_locked(2) and String(board.offers[2].id) == saved)
 	check("while the rest of the board is new", board.has_unlocked_offer())
+	game.free()
+
+# Everything under GameSession lives in session space, and the session is scaled
+# and offset so the oversized arena lands on its view. An emitter that hands out
+# a *global* position has it transformed a second time when it lands on another
+# node's local position -- which put enemy bullets, drops, damage numbers and
+# blasts a growing distance from where they happened. It was invisible for as
+# long as the session sat at identity, and appeared the moment the arena grew.
+func test_spawns_land_where_they_happened() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	clear_field(s)
+	s.round_phase = "shop"
+	# Far from the origin, because the error grows with distance from it.
+	var far := Arena.BOUNDS.end - Vector2(240.0, 240.0)
+	var mob = s.spawn_enemy(EnemyCatalog.all()[0], far, false)
+	check("the session is genuinely transformed (%s vs %s)" % [mob.global_position.round(), mob.position.round()],
+		not mob.global_position.is_equal_approx(mob.position))
+
+	var reported := [Vector2.ZERO]
+	mob.damaged.connect(func(at: Vector2, amount: float, crit: bool) -> void: reported[0] = at)
+	mob.take_damage(1.0)
+	check("an enemy reports where it is in session space (%s vs %s)" % [reported[0].round(), mob.position.round()],
+		reported[0].is_equal_approx(mob.position))
+
+	var landed := [Vector2.ZERO]
+	mob.wants_shot.connect(func(from: Vector2, dir: Vector2, dmg: float, speed: float) -> void: landed[0] = from)
+	mob.wants_shot.emit(mob.position, Vector2.RIGHT, 5.0, 300.0)
+	s.on_enemy_shot(landed[0], Vector2.RIGHT, 5.0, 300.0)
+	var bullet = s.shots.get_child(s.shots.get_child_count() - 1)
+	check("a bullet leaves the body that fired it (%.0fpx)" % bullet.position.distance_to(mob.position),
+		bullet.position.distance_to(mob.position) < 2.0)
+
+	mob.take_damage(mob.max_hp * 2.0)
+	await step(2)
+	var drop = s.pickups.get_child(s.pickups.get_child_count() - 1)
+	check("and a drop lands where the enemy died (%.0fpx)" % drop.position.distance_to(far),
+		drop.position.distance_to(far) < 40.0)
 	game.free()
 
 # --- co-op: two players, one arena -------------------------------------------

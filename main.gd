@@ -476,6 +476,14 @@ func choose_upgrade(index: int, at_seat: int = 0) -> void:
 
 # Selling or merging shortens the rack, and with it the shop's row list, so the
 # cursor has to be brought back inside the list it is pointing into.
+# The offer the cursor is on, whether it is resting on the card or on its pin
+# chip -- so the pin shortcut works from either.
+func focused_offer(at_seat: int) -> int:
+	var action := focused_action(at_seat)
+	if action.begins_with("buy_"): return int(action.trim_prefix("buy_"))
+	if action.begins_with("lock_"): return int(action.trim_prefix("lock_"))
+	return -1
+
 func clamp_focus(at_seat: int = 0) -> void:
 	set_cursor(at_seat, clampi(cursor(at_seat), 0, maxi(0, menu_items(at_seat).size() - 1)))
 
@@ -578,6 +586,7 @@ func pad_verb(button: int) -> String:
 	if button == Gamepad.CROSS: return "confirm"
 	if button == Gamepad.CIRCLE: return "back"
 	if button == Gamepad.OPTIONS: return "pause"
+	if button == Gamepad.R1: return "ready"
 	if button == Gamepad.SQUARE: return "alt"
 	if button == Gamepad.TRIANGLE: return "special"
 	if button == JOY_BUTTON_DPAD_UP: return "nav_up"
@@ -694,9 +703,20 @@ func handle_verb(verb: String, at_seat: int = 0) -> bool:
 			"confirm":
 				activate_menu(at_seat)
 				return true
-	if verb == "alt" and state == "shop":
-		session.reroll_shop(at_seat)
-		return true
+	# The shop has three things worth reaching without walking the cursor to a
+	# button, so it takes a shoulder as well as the two spare face buttons.
+	if state == "shop":
+		match verb:
+			"alt":
+				var offer := focused_offer(at_seat)
+				if offer >= 0: session.toggle_lock(offer, at_seat)
+				return true
+			"special":
+				session.reroll_shop(at_seat)
+				return true
+			"ready":
+				leave_shop(at_seat)
+				return true
 	if verb == "back":
 		match state:
 			"settings", "settings_pause":
@@ -783,6 +803,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif state == "shop":
 		if key.keycode >= KEY_1 and key.keycode <= KEY_4: session.buy(key.keycode - KEY_1, seat_for("keyboard"))
 		elif key.keycode == KEY_R: session.reroll_shop(seat_for("keyboard"))
+		elif key.keycode == KEY_L:
+			var pin := focused_offer(seat_for("keyboard"))
+			if pin >= 0: session.toggle_lock(pin, seat_for("keyboard"))
 	elif state == "level_up":
 		if key.keycode >= KEY_1 and key.keycode <= KEY_4: choose_upgrade(key.keycode - KEY_1, seat_for("keyboard"))
 	elif state == "playing":

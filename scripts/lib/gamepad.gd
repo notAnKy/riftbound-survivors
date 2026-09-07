@@ -19,6 +19,10 @@ const CIRCLE := JOY_BUTTON_B
 const SQUARE := JOY_BUTTON_X
 const TRIANGLE := JOY_BUTTON_Y
 const OPTIONS := JOY_BUTTON_START
+# The shoulder, for a screen that needs one more verb than the face has room
+# for -- the shop wants pin, reroll and next wave all reachable without walking
+# the cursor over to a button.
+const R1 := JOY_BUTTON_RIGHT_SHOULDER
 
 # Past this the stick counts as pushed for menu navigation. Deliberately well
 # above the movement deadzone: a thumb resting on the stick must not scroll a
@@ -93,12 +97,14 @@ static func glyph(button: int) -> String:
 		if button == SQUARE: return "square"
 		if button == TRIANGLE: return "triangle"
 		if button == OPTIONS: return "options"
+		if button == R1: return "R1"
 		return "cross"
 	if button == CROSS: return "A"
 	if button == CIRCLE: return "B"
 	if button == SQUARE: return "X"
 	if button == TRIANGLE: return "Y"
 	if button == OPTIONS: return "options"
+	if button == R1: return "RB"
 	return "A"
 
 # The face-button colours a PlayStation pad is printed with. An Xbox letter
@@ -110,6 +116,7 @@ const COLORS := {
 	"square": Color("ef7ad0"),
 	"triangle": Color("5ee0a8"),
 	"options": Color("cddcf7"),
+	"R1": Color("cddcf7"), "RB": Color("cddcf7"),
 	"A": Color("8ea6e8"),
 	"B": Color("ff6d7d"),
 	"X": Color("ef7ad0"),

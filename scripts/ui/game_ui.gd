@@ -320,7 +320,9 @@ func draw_pad_badge(centre: Vector2, glyph: String) -> void:
 				var y := centre.y - 4.0 + float(i) * 4.0
 				draw_line(Vector2(centre.x - r, y), Vector2(centre.x + r, y), tint, 1.8)
 		_:
-			text_centered(centre.x, centre.y + 6.0, glyph, 16, tint)
+			# A shoulder reads "R1" or "RB", which does not fit at the face-button
+			# size.
+			text_centered(centre.x, centre.y + 5.0, glyph, 16 if glyph.length() < 2 else 12, tint)
 
 func draw_key_cap(rect: Rect2, key: String) -> void:
 	draw_panel(rect, Color(0.09, 0.13, 0.23, 0.95), Color("6d84b4"), 1.5)
@@ -365,6 +367,7 @@ func pad_button(verb: String) -> int:
 		"alt": return Gamepad.SQUARE
 		"special": return Gamepad.TRIANGLE
 		"pause": return Gamepad.OPTIONS
+		"ready": return Gamepad.R1
 	return Gamepad.CROSS
 
 func draw_panel(rect: Rect2, fill: Color, edge: Color, width: float = 2.0) -> void:
@@ -666,8 +669,8 @@ func draw_shop_pane(s: GameSession, who: Survivor, at_seat: int) -> void:
 		Color("54617d") if who.ready else Color("69f4d4"), at_seat)
 	# Sits in the gap between the two buttons, which is empty on every layout
 	# because they are pinned to the outer edges of the offer block.
-	var hints: Array = [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"], ["alt", "R", "REROLL"]]
-	if not on_pad() and not game.coop: hints.append(["confirm", "SPACE", "NEXT WAVE"])
+	var hints: Array = [["nav", "ARROWS", "MOVE"], ["confirm", "ENTER", "SELECT"],
+		["alt", "L", "PIN"], ["special", "R", "REROLL"], ["ready", "SPACE", "NEXT WAVE"]]
 	if not game.coop:
 		draw_hint_row(centre, button_top() + 34.0, hints, 15)
 	elif at_seat == 0:

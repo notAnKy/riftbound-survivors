@@ -35,6 +35,16 @@ var tint := Color.WHITE
 var player: Player = null
 var targets: Array = []
 
+# Everything this emits is in *session* space, not global.
+#
+# The session is scaled and offset so the oversized arena lands on its view, and
+# what these values become is another node's local position -- a bullet, a drop,
+# a damage number, a blast. Handing out global_position there gets it
+# transformed a second time, which put all of them a growing distance from where
+# they actually happened. It was invisible for as long as the session sat at
+# identity. Comparisons between two globals (a distance, a direction) are fine
+# and stay as they are.
+
 # Called straight after add_child(). $Sprite / $Body resolve as soon as the
 # scene is instantiated, so this does not depend on _ready having run.
 func configure(def: Dictionary, round_number: int, who: Array, boss: bool = false, elite: bool = false) -> void:
@@ -133,7 +143,7 @@ func _physics_process(delta: float) -> void:
 			else: velocity = direction.orthogonal() * speed * 0.4
 			if attack_timer <= 0.0 and distance <= attack_range * 1.1:
 				attack_timer = attack_cooldown
-				wants_shot.emit(global_position, direction, contact_damage, bullet_speed)
+				wants_shot.emit(position, direction, contact_damage, bullet_speed)
 		_:
 			velocity = direction * speed
 	# Knockback rides on top of the steering and bleeds off, so a nova throws
@@ -155,11 +165,11 @@ func take_damage(amount: float, crit: bool = false) -> void:
 	if not alive: return
 	hp -= amount
 	hit_flash = 0.07
-	damaged.emit(global_position, amount, crit)
+	damaged.emit(position, amount, crit)
 	queue_redraw()
 	if hp <= 0.0:
 		alive = false
-		died.emit(global_position, material_value, is_boss, definition)
+		died.emit(position, material_value, is_boss, definition)
 		queue_free()
 
 # Winding up is telegraphed by standing still and glowing, so a charge is
