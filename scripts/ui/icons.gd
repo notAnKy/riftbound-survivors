@@ -1,11 +1,15 @@
 class_name Icons
 extends RefCounted
 
-# Weapon and item icons from game-icons.net (CC BY 3.0, see
-# assets/ATTRIBUTION.md). They ship as a white glyph on an opaque black square;
-# the square is stripped at download time so the glyph is white on transparent,
-# which means `modulate` tints it with whatever colour the weapon or item
-# already carries. One asset, every rarity colour.
+# Weapon and item icons, drawn by `tests/draw_icons.gd` in the same heavy-outline
+# style as the actors so the shop and the arena look like one game.
+#
+# They used to be white game-icons.net glyphs tinted through `modulate`, so one
+# asset covered every rarity colour. The art is full colour now and the tint is
+# gone: a shop card already states rarity in its border and its title, and
+# saying it a third time through the icon cost the art all of its colour. The
+# `color` argument survives for the missing-icon fallback, which still has to
+# draw *something* and has no art to take a colour from.
 #
 # Imported at svg/scale = 0.25, so a 512px source rasterises to 128px -- still
 # far more than the ~30px an icon is ever drawn at, without holding a megabyte
@@ -63,4 +67,4 @@ static func draw_icon(canvas: CanvasItem, path: String, at: Vector2, size: float
 		# A missing icon should read as a gap, not crash a screen mid-draw.
 		canvas.draw_arc(at, size * 0.7, 0.0, TAU, 20, color, maxf(1.0, size * 0.16))
 		return
-	canvas.draw_texture_rect(tex, Rect2(at - Vector2(size, size), Vector2(size, size) * 2.0), false, color)
+	canvas.draw_texture_rect(tex, Rect2(at - Vector2(size, size), Vector2(size, size) * 2.0), false)
