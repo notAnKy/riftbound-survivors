@@ -14,7 +14,9 @@ const WALL_THICKNESS := 60.0
 
 # Scattered decoration. Purely visual -- no collision, and drawn under the
 # actors -- so the arena reads as a place without changing how it plays.
-# Each prop carries its own tint: the crates sit back in the palette, and the
+# Each prop carries its own colour in its own art now, so the tint here is only
+# an opacity -- decoration sits back by being darker and thinner, not by being
+# washed out. Formerly: the crates sit back in the palette, and the
 # growth is pushed to teal so it reads as rift bloom rather than shrubbery.
 # Heavily muted on purpose. These are ground texture, not objects: anything on
 # the floor as saturated as an enemy is competing with the one thing the player
@@ -23,7 +25,8 @@ const WALL_THICKNESS := 60.0
 # different floor rather than as an object on it, which is worse than nothing;
 # the ground's own detail comes from the accent layer instead.
 const PROPS := [
-	{"texture": "prop_growth", "tint": Color(0.80, 0.76, 0.70, 0.55)},
+	{"texture": "prop_rock", "tint": Color(1.0, 1.0, 1.0, 0.62)},
+	{"texture": "prop_shard", "tint": Color(1.0, 1.0, 1.0, 0.55)},
 ]
 const PROP_SCALE := 0.9
 const PROP_COUNT := 16
@@ -100,12 +103,19 @@ func scatter_props() -> void:
 		var sprite := Sprite2D.new()
 		sprite.texture = load("res://assets/sprites/%s.png" % prop.texture)
 		sprite.position = spot
-		# Quarter turns only: pixel art rotated off-axis turns into porridge.
-		sprite.rotation = float(rng.randi_range(0, 3)) * PI * 0.5
+		# The quarter-turn rule was a pixel-art rule -- rotated off-axis, pixel
+		# art turns to porridge. Vector props can take any angle, but a rock
+		# stood on its side reads as floating, so it is a small tilt and a
+		# flip rather than a spin.
+		sprite.rotation = rng.randf_range(-0.22, 0.22)
+		sprite.flip_h = rng.randf() < 0.5
 		# Decoration sits under the actors in the hierarchy as well as in the
 		# draw order: same source pixels, deliberately smaller and dimmer, so a
 		# mushroom cannot be mistaken for something that matters.
 		sprite.scale = Vector2.ONE * PROP_SCALE
+		# Vector art, so linear. The Floor and Accent above are still pixel
+		# tiles and keep nearest -- the filter is per node for that reason.
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 		sprite.modulate = prop.tint
 		add_child(sprite)
 		placed += 1

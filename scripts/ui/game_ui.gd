@@ -63,9 +63,10 @@ var display: Font
 
 func _ready() -> void:
 	game = get_parent() as GameController
-	# Nearest, or the character art drawn on the picker screens goes soft the
-	# moment it is blown up -- the same reason every actor sprite sets it.
-	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# Linear. The actor art is vector rasterised well above its drawn size, and
+	# nearest on a downscale of that is all jagged edges -- the opposite of the
+	# pixel-art case this used to be set for.
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	# Rajdhani for text, Orbitron for headings. The engine fallback font is
 	# what made every screen read as a prototype.
 	font = load("res://assets/fonts/Rajdhani-SemiBold.ttf") as Font
