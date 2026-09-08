@@ -30,6 +30,9 @@ var charge_state := "ready"
 var charge_timer := 0.0
 var charge_dir := Vector2.RIGHT
 var age := 0.0
+# Boss volleys: the clock, and which shape comes next.
+var volley_timer := 0.0
+var volley_index := 0
 var alive := true
 var tint := Color.WHITE
 # A hop, a breath and a flinch on a sprite that has no frames. See sprite_anim.
@@ -149,6 +152,11 @@ func _physics_process(delta: float) -> void:
 	else: sprite.modulate = tint
 	# Last frame's velocity is plenty: this is a hop, not a simulation.
 	anim.tick(sprite, delta, velocity.length() / maxf(speed, 1.0))
+	if is_boss:
+		volley_timer -= delta
+		if volley_timer <= 0.0:
+			volley_timer = Balance.BOSS_VOLLEY_SECONDS
+			fire_volley()
 	var to_player := player.global_position - global_position
 	var distance := to_player.length()
 	var direction := to_player / maxf(distance, 0.001)
@@ -189,6 +197,19 @@ func _physics_process(delta: float) -> void:
 	if behaviour != "shooter" and distance < radius + Player.BODY_RADIUS + 2.0 and attack_timer <= 0.0:
 		attack_timer = attack_cooldown
 		player.hurt(contact_damage)
+
+# A plus, then a star, then a plus. Alternating the spoke count *and* twisting
+# the odd one by half a step means two volleys in a row never leave the same
+# gaps, so standing in one safe lane does not work twice.
+func fire_volley() -> void:
+	var star := volley_index % 2 == 1
+	var spokes := Balance.BOSS_VOLLEY_SPOKES if star else 4
+	var twist := (PI / float(spokes)) if star else 0.0
+	volley_index += 1
+	for i in range(spokes):
+		var angle := TAU * float(i) / float(spokes) + twist
+		wants_shot.emit(position, Vector2.RIGHT.rotated(angle),
+			contact_damage * Balance.BOSS_VOLLEY_DAMAGE, Balance.BOSS_VOLLEY_SPEED)
 
 func push(direction: Vector2, force: float) -> void:
 	knockback = direction.normalized() * force

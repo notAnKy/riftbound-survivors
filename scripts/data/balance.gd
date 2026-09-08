@@ -6,7 +6,9 @@ extends RefCounted
 
 # Enemy health at round N is (BASE + PER_ROUND * N) * type multiplier * curve.
 const ENEMY_HP_BASE := 15.0
-const ENEMY_HP_PER_ROUND := 4.2
+# Raised with the spawn rate cut: the crowd is roughly half the size it was, so
+# each body in it has to be worth more. See SPAWN_INTERVAL for the whole trade.
+const ENEMY_HP_PER_ROUND := 5.6
 
 # The curve compounds, so small changes here matter far more by round 10 than
 # anything else in this file. 1.30 made round 10 enemies roughly 1700hp.
@@ -18,21 +20,32 @@ const ROUND_INTENSITY := 1.16
 const ROUND_INTENSITY_LATE := 1.09
 const INTENSITY_SOFTENS_AT := 10
 
-const ENEMY_SPEED_MIN := 54.0
-const ENEMY_SPEED_MAX := 82.0
-const ENEMY_SPEED_PER_ROUND := 4.0
-const ENEMY_DAMAGE_PER_ROUND := 1.5
+# Faster and harder-hitting, for the same reason. A wave should be threatening
+# because the things in it are dangerous, not because there are hundreds.
+const ENEMY_SPEED_MIN := 70.0
+const ENEMY_SPEED_MAX := 106.0
+const ENEMY_SPEED_PER_ROUND := 5.4
+const ENEMY_DAMAGE_PER_ROUND := 2.2
 
 # A boss is priced as a very fat enemy rather than on its own curve. It used to
 # be BOSS_HP_BASE * (1 + 0.18 * round), which is *linear* while every regular
 # enemy compounds -- so a wave-20 brute ended up with 2.4x the final boss's
 # health, and the wave-5 boss died in about two seconds of focused fire. Running
 # it through enemy_hp means it can never fall behind the crowd again.
-const BOSS_HP_TYPE := 40.0
+const BOSS_HP_TYPE := 68.0
 # And it hits harder than the thing it is standing in a crowd of.
-const BOSS_DAMAGE := 1.35
-const BOSS_SPEED_BASE := 45.0
-const BOSS_SPEED_PER_ROUND := 2.0
+const BOSS_DAMAGE := 1.7
+const BOSS_SPEED_BASE := 72.0
+const BOSS_SPEED_PER_ROUND := 2.8
+
+# A boss that only walks at you is a health bar with legs. Every few seconds it
+# punctuates the chase with a radial volley, alternating a four-spoke plus and
+# an eight-spoke star so consecutive volleys never line up -- the star goes
+# through the gaps the plus left.
+const BOSS_VOLLEY_SECONDS := 3.4
+const BOSS_VOLLEY_SPOKES := 8
+const BOSS_VOLLEY_DAMAGE := 0.55
+const BOSS_VOLLEY_SPEED := 250.0
 
 # Levelling. XP needed for the next level is previous * GROWTH + FLAT.
 const XP_FIRST_LEVEL := 10
@@ -40,18 +53,26 @@ const XP_GROWTH := 1.22
 const XP_FLAT := 3
 
 # Seconds between spawn batches, before the curve divides it down.
-const SPAWN_INTERVAL := 1.05
+const SPAWN_INTERVAL := 1.5
 # The floor binds from about wave 12 on, so it alone sets the late-game spawn
 # rate: at 0.16 with a batch of five that was 31 enemies a second and close to
 # two thousand in one wave, which is where the crowd ran away from any build
 # that was not merging weapons.
-const SPAWN_INTERVAL_MIN := 0.22
+# Play feedback at rounds 10-14: too many enemies, spawning too fast, to the
+# point of stuttering the machine -- and difficulty that arrives as a headcount
+# is not difficulty, it is noise. Roughly 2.5x fewer arrive now (wave 15 goes
+# from ~18 a second to ~7) and each one is faster, tougher and hits harder.
+const SPAWN_INTERVAL_MIN := 0.42
 # Rounds at which the spawner starts adding another enemy per batch. It
 # used to double up at round 4, which is exactly where the difficulty
 # complaint landed.
-const SPAWN_BATCH_EVERY := 5
+const SPAWN_BATCH_EVERY := 6
 # And a ceiling on that, for the same reason as the interval floor.
 const SPAWN_BATCH_MAX := 4
+# A hard ceiling on live bodies. The spawner simply waits above it: the frame
+# cost is real, and a crowd already too big to fight is not made more
+# interesting by being bigger.
+const MAX_LIVE_ENEMIES := 90
 # --- where the crowd comes from ----------------------------------------------
 #
 # Enemies used to pick a uniformly random edge on *every single spawn*, which
@@ -89,10 +110,10 @@ static func spawn_interval(round_number: int, danger: int) -> float:
 # out-paced a whole crowd hitting you, so standing still was the strongest play.
 # The bandage roll, the per-kill trickle and lifesteal are all deliberately thin,
 # and lifesteal is capped per hit so a piercing crit cannot refill the bar.
-const HEALTH_DROP_CHANCE := 0.03
+const HEALTH_DROP_CHANCE := 0.02
 const HEALTH_DROP_AMOUNT := 8
-const HEAL_EVERY_KILLS := 40
-const HEAL_ON_KILLS := 3.0
+const HEAL_EVERY_KILLS := 65
+const HEAL_ON_KILLS := 2.0
 # --- survivability -----------------------------------------------------------
 #
 # Play-tested to round 14 standing still and never dying. Three unbounded stacks
@@ -107,7 +128,9 @@ const HEAL_ON_KILLS := 3.0
 # left alone.
 const SYNERGY_ITEM_CAP := 12
 # A hard ceiling on regen, so no combination of sources can outrun a crowd.
-const REGEN_CAP := 6.0
+# Halved again on play feedback: "I take damage and heal immediately" at round
+# 7. Regen is the stat that quietly decides whether damage matters at all.
+const REGEN_CAP := 3.0
 # Armor is amount * (1 - armor / (armor + ARMOR_SOFTNESS)), then floored at
 # ARMOR_MIN_TAKEN. Softness was 30, which is why 70 armor read as 70% off.
 const ARMOR_SOFTNESS := 55.0
@@ -115,7 +138,7 @@ const ARMOR_MIN_TAKEN := 0.45
 # Dodge was capped at 60%, which stacks multiplicatively with armor and regen
 # and was doing more than either.
 const DODGE_CAP := 30.0
-const LIFESTEAL_MAX_PER_HIT := 0.008
+const LIFESTEAL_MAX_PER_HIT := 0.004
 
 # Between-wave healing is the opposite case, and is where the health economy
 # actually lives. Chip damage carries across waves, so without this a run is a
@@ -123,10 +146,10 @@ const LIFESTEAL_MAX_PER_HIT := 0.008
 # was left over from the last five, which is exactly the wall play-testing hit.
 # Once per wave, capped at max HP, it cannot be farmed the way a per-kill heal
 # can -- standing still through a wave earns nothing extra.
-const WAVE_CLEAR_HEAL := 0.15
+const WAVE_CLEAR_HEAL := 0.10
 # A wave survived at a sliver pays a little more, so a bad wave is recoverable
 # without making a good one heal for nothing. Fraction of the missing bar.
-const WAVE_CLEAR_HEAL_MISSING := 0.08
+const WAVE_CLEAR_HEAL_MISSING := 0.04
 
 # Co-op. A downed survivor is revived at the start of the next round, at this
 # fraction of max HP -- going down has to cost something, or throwing yourself at

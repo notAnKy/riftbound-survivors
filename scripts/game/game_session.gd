@@ -594,6 +594,9 @@ func rebuild_stats(heal_gain: bool = false, who: Survivor = null) -> void:
 func spawn_enemies(delta: float) -> void:
 	gate_timer -= delta
 	if gate_timer <= 0.0 or spawn_gates.is_empty(): pick_gates()
+	# Above the ceiling the spawner simply waits. The clock is not decremented
+	# either, so clearing bodies does not immediately dump a backlog on you.
+	if actors.get_child_count() >= Balance.MAX_LIVE_ENEMIES: return
 	spawn_timer -= delta
 	if spawn_timer > 0.0: return
 	# Two players kill far faster than one, so the crowd arrives faster too.

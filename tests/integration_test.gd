@@ -291,7 +291,7 @@ func test_balance_curve() -> void:
 	check("a boss outweighs its wave's brute throughout (%s)" % ("ok" if outweighs else worst), outweighs)
 	# And is still killable: a fight, not a wall.
 	check("boss at round 5 is a fight, not a wall (%.0f hp)" % Balance.boss_hp(5),
-		Balance.boss_hp(5) > 1500.0 and Balance.boss_hp(5) < 4000.0)
+		Balance.boss_hp(5) > 3500.0 and Balance.boss_hp(5) < 8000.0)
 	check("and it hits harder than the crowd it arrives with (%.0fx)" % Balance.BOSS_DAMAGE,
 		Balance.BOSS_DAMAGE > 1.0)
 	var need := Balance.XP_FIRST_LEVEL
@@ -1021,7 +1021,11 @@ func test_between_wave_healing() -> void:
 	var before: float = s.player.hp
 	s.finish_wave()
 	var gained: float = s.player.hp - before
-	check("clearing a wave heals a real chunk (%.0f hp)" % gained, gained > s.player.max_hp * 0.2)
+	# Deliberately modest. It exists so chip damage does not carry across a
+	# whole run untouched, not so a wave clear undoes the wave -- the second
+	# pass on healing cut it after "I take damage and heal immediately".
+	check("clearing a wave pays back some of the bar (%.0f hp)" % gained,
+		gained > s.player.max_hp * 0.10 and gained < s.player.max_hp * 0.25)
 	check("but not a full refill (%.0f/%.0f)" % [s.player.hp, s.player.max_hp], s.player.hp < s.player.max_hp)
 	s.player.hp = s.player.max_hp
 	s.finish_wave()
