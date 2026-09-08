@@ -514,7 +514,10 @@ func synergy_count(of: String, who: Survivor = null) -> int:
 	var owner := who if who != null else me
 	match of:
 		"weapons": return owner.weapons.size()
-		"items": return owner.items.size()
+		# Capped: this is the count that reaches 40 in a finished run, and the
+		# three items reading it were the whole immortality problem. The other
+		# counts below top out at six on their own.
+		"items": return mini(owner.items.size(), Balance.SYNERGY_ITEM_CAP)
 		"empty_slots": return maxi(0, owner.weapon_slots - owner.weapons.size())
 		"melee":
 			var melee := 0

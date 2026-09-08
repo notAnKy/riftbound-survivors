@@ -71,7 +71,7 @@ func _physics_process(delta: float) -> void:
 	dash_cooldown = maxf(0.0, dash_cooldown - delta)
 	hit_flash = maxf(0.0, hit_flash - delta)
 	if alive:
-		var regen := stats.get_stat("hp_regen")
+		var regen := stats.regen_per_second()
 		if regen > 0.0: hp = minf(max_hp, hp + regen * delta)
 	heal_flash = maxf(0.0, heal_flash - delta)
 	var sprite := $Sprite as Sprite2D

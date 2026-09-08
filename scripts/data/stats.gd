@@ -73,11 +73,19 @@ func format(stat: String) -> String:
 # 30 armor halves incoming damage; doubling it again only gets to two thirds.
 func damage_taken(amount: float) -> float:
 	var armor := maxf(get_stat("armor"), 0.0)
-	return amount * (1.0 - armor / (armor + 30.0))
+	var taken := 1.0 - armor / (armor + Balance.ARMOR_SOFTNESS)
+	# Floored, so armor can never be the whole answer on its own. It used to
+	# stack multiplicatively with dodge and regen into total immunity.
+	return amount * maxf(taken, Balance.ARMOR_MIN_TAKEN)
+
+# Capped, for the same reason the armor curve is floored: every source of
+# survivability multiplies with every other one.
+func regen_per_second() -> float:
+	return minf(maxf(get_stat("hp_regen"), 0.0), Balance.REGEN_CAP)
 
 # Capped, or enough dodge would make a run unloseable.
 func dodges(rng: RandomNumberGenerator) -> bool:
-	return rng.randf() * 100.0 < minf(get_stat("dodge"), 60.0)
+	return rng.randf() * 100.0 < minf(get_stat("dodge"), Balance.DODGE_CAP)
 
 func damage_multiplier() -> float:
 	return maxf(0.1, 1.0 + get_stat("damage") / 100.0)

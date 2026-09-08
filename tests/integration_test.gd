@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 358
+const EXPECTED_CHECKS := 362
 var checks := 0
 
 func _initialize() -> void:
@@ -458,9 +458,13 @@ func test_stat_math() -> void:
 	var stats := Stats.new()
 	check("no armor takes full damage", is_equal_approx(stats.damage_taken(100.0), 100.0))
 	stats.add("armor", 30.0)
-	check("30 armor halves incoming damage (%.1f)" % stats.damage_taken(100.0), is_equal_approx(stats.damage_taken(100.0), 50.0))
+	check("30 armor takes about two thirds (%.1f)" % stats.damage_taken(100.0),
+		stats.damage_taken(100.0) > 60.0 and stats.damage_taken(100.0) < 70.0)
 	stats.add("armor", 9970.0)
-	check("stacked armor never reaches immunity (%.3f)" % stats.damage_taken(100.0), stats.damage_taken(100.0) > 0.0)
+	# Floored, not merely asymptotic. Armor used to approach immunity slowly
+	# enough that stacking it with dodge and regen got there anyway.
+	check("armor alone can never take more than its floor (%.1f)" % stats.damage_taken(100.0),
+		is_equal_approx(stats.damage_taken(100.0), Balance.ARMOR_MIN_TAKEN * 100.0))
 	var offence := Stats.new()
 	offence.add("damage", 50.0)
 	check("damage percent multiplies (%.2f)" % offence.damage_multiplier(), is_equal_approx(offence.damage_multiplier(), 1.5))
@@ -474,7 +478,39 @@ func test_stat_math() -> void:
 	var dodged := 0
 	for i in range(400):
 		if dodgy.dodges(rng): dodged += 1
-	check("dodge is capped well below certainty (%d/400)" % dodged, dodged > 180 and dodged < 290)
+	check("dodge is capped well below certainty (%d/400)" % dodged, dodged > 80 and dodged < 170)
+
+	# The build that made round 14 survivable standing still. Every defensive
+	# item and reward at once, against the crowd of that round: it has to still
+	# lose. No single number below is the fix -- they multiply, which is exactly
+	# what made this reachable, so the assertion is on the product.
+	var tank := Stats.new()
+	tank.set_stat("max_hp", 100.0)
+	for id in ["scrap_plate", "ration_pack", "ghost_step", "leech_rune", "repair_field",
+			"vital_spring", "bulwark", "hoarder", "quartermaster", "field_medic"]:
+		var def := ItemCatalog.get_item(id)
+		tank.apply_dict(def.stats)
+		if def.has("per"):
+			tank.add(String(def.per.stat), float(def.per.amount) * float(Balance.SYNERGY_ITEM_CAP))
+	for reward in ["max_hp:12", "armor:2", "hp_regen:0.25", "lifesteal:1.8", "hp_regen:0.55", "armor:5", "dodge:3", "hp_regen:0.9"]:
+		var bits: PackedStringArray = reward.split(":")
+		tank.add(bits[0], float(bits[1]))
+	check("a full defensive build caps its regen (%.2f/s)" % tank.regen_per_second(),
+		tank.regen_per_second() <= Balance.REGEN_CAP)
+	# Round 14 sends roughly this much contact damage a second into a standing
+	# player, before any of the mitigation below.
+	# Eight husks in contact, which is about as many as fit round the player,
+	# each landing roughly one hit a second at their cooldown.
+	var raw := 8.0 * Balance.enemy_damage(14, 8.0)
+	var after_armor := tank.damage_taken(raw)
+	var after_dodge := after_armor * (1.0 - minf(tank.get_stat("dodge"), Balance.DODGE_CAP) / 100.0)
+	check("armor and dodge together do not erase the crowd (%.0f of %.0f dps)" % [after_dodge, raw],
+		after_dodge > raw * 0.30)
+	check("and standing in it still outruns regen (%.0f dps vs %.2f/s)" % [after_dodge, tank.regen_per_second()],
+		after_dodge > tank.regen_per_second() * 2.0)
+	var pool: float = tank.get_stat("max_hp")
+	var seconds: float = pool / maxf(after_dodge - tank.regen_per_second(), 0.01)
+	check("so standing still kills you in %.0fs, not never" % seconds, seconds < 30.0)
 
 # --- phase 2.5: healing, nova, bigger arena ----------------------------------
 

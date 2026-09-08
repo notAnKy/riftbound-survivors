@@ -65,8 +65,30 @@ static func spawn_interval(round_number: int, danger: int) -> float:
 const HEALTH_DROP_CHANCE := 0.03
 const HEALTH_DROP_AMOUNT := 8
 const HEAL_EVERY_KILLS := 40
-const HEAL_ON_KILLS := 5.0
-const LIFESTEAL_MAX_PER_HIT := 0.02
+const HEAL_ON_KILLS := 3.0
+# --- survivability -----------------------------------------------------------
+#
+# Play-tested to round 14 standing still and never dying. Three unbounded stacks
+# were multiplying: hp_regen reached ~20/s, armor ~70% reduction and dodge its
+# 60% cap, so incoming damage arrived at 12% of face value against a pool that
+# refilled faster than it drained.
+#
+# The root cause was `of:"items"`. A synergy scaling per item owned is fine when
+# a run holds six; runs hold 29-43 after the economy rebalance, so FIELD MEDIC
+# alone was worth 13.5 HP/s. The count these read is capped now -- naturally
+# capped counts (weapons, empty slots, melee) top out at 6 on their own and are
+# left alone.
+const SYNERGY_ITEM_CAP := 12
+# A hard ceiling on regen, so no combination of sources can outrun a crowd.
+const REGEN_CAP := 6.0
+# Armor is amount * (1 - armor / (armor + ARMOR_SOFTNESS)), then floored at
+# ARMOR_MIN_TAKEN. Softness was 30, which is why 70 armor read as 70% off.
+const ARMOR_SOFTNESS := 55.0
+const ARMOR_MIN_TAKEN := 0.45
+# Dodge was capped at 60%, which stacks multiplicatively with armor and regen
+# and was doing more than either.
+const DODGE_CAP := 30.0
+const LIFESTEAL_MAX_PER_HIT := 0.008
 
 # Between-wave healing is the opposite case, and is where the health economy
 # actually lives. Chip damage carries across waves, so without this a run is a
@@ -74,10 +96,10 @@ const LIFESTEAL_MAX_PER_HIT := 0.02
 # was left over from the last five, which is exactly the wall play-testing hit.
 # Once per wave, capped at max HP, it cannot be farmed the way a per-kill heal
 # can -- standing still through a wave earns nothing extra.
-const WAVE_CLEAR_HEAL := 0.22
+const WAVE_CLEAR_HEAL := 0.15
 # A wave survived at a sliver pays a little more, so a bad wave is recoverable
 # without making a good one heal for nothing. Fraction of the missing bar.
-const WAVE_CLEAR_HEAL_MISSING := 0.12
+const WAVE_CLEAR_HEAL_MISSING := 0.08
 
 # Co-op. A downed survivor is revived at the start of the next round, at this
 # fraction of max HP -- going down has to cost something, or throwing yourself at
@@ -192,6 +214,12 @@ static func intensity(round_number: int) -> float:
 static func enemy_hp(round_number: int, type_multiplier: float) -> float:
 	var base := ENEMY_HP_BASE + ENEMY_HP_PER_ROUND * float(round_number)
 	return base * type_multiplier * intensity(round_number)
+
+# What one enemy of `base` contact damage hits for at this round. Was inline in
+# enemy.gd; it is here so the balance model and the suite read the same figure
+# the game does rather than a second copy that can drift.
+static func enemy_damage(round_number: int, base: float) -> float:
+	return base + float(round_number) * ENEMY_DAMAGE_PER_ROUND
 
 static func boss_hp(round_number: int) -> float:
 	return BOSS_HP_BASE * (1.0 + float(round_number - 1) * BOSS_HP_PER_ROUND)
