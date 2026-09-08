@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 388
+const EXPECTED_CHECKS := 394
 var checks := 0
 
 func _initialize() -> void:
@@ -83,6 +83,7 @@ func bootstrap() -> void:
 	await test_between_wave_healing()
 	await test_level_up_selection()
 	await test_pointer_does_not_fight_the_arrows()
+	await test_everything_drawn_is_clickable()
 	await test_spawn_gates_have_a_direction()
 	await test_crowd_control()
 	await test_controller()
@@ -1121,6 +1122,37 @@ func test_level_up_selection() -> void:
 	check("and its cards, buttons and slots are one list (%d rows)" % game.menu_items().size(),
 		game.menu_items().size() >= GameUI.SHOP_CARDS + 2)
 	check("laid out as the bands it is drawn in (%d)" % game.menu_groups().size(), game.menu_groups().size() == 3)
+	game.free()
+
+# A button that is drawn and not hit-tested is the quietest bug on a menu: it
+# looks finished and does nothing. Both of these shipped that way, because their
+# rectangles were laid out inline where they were drawn rather than coming from
+# a helper menu_action_at could ask about.
+func test_everything_drawn_is_clickable() -> void:
+	var game = await fresh_game()
+
+	# Controls: reachable only from settings, and its BACK went nowhere.
+	game.state = "settings"
+	game.handle_menu_action("controls")
+	check("settings opens the controls screen (%s)" % game.state, game.state == "controls")
+	check("its BACK button is hit-tested",
+		game.ui.menu_action_at(game.ui.controls_back_rect().get_center()) == "back")
+	click(game, game.ui.controls_back_rect().get_center())
+	check("and clicking it goes back where it came from (%s)" % game.state, game.state == "settings")
+
+	# Armory: only BACK and the danger chips were clickable, so the weapon cards
+	# and the survivor panel could be seen and not chosen.
+	game.state = "armory"
+	game.selected_gun = 0
+	click(game, game.ui.gun_rect(2).get_center())
+	check("clicking a weapon card equips it (%d)" % game.selected_gun, game.selected_gun == 2)
+	var before: int = game.selected_character
+	click(game, game.ui.character_panel_rect().get_center())
+	check("clicking the survivor panel steps to the next one (%d -> %d)" % [before, game.selected_character],
+		game.selected_character != before)
+	# And the rows that already worked still do.
+	click(game, game.ui.danger_rect(0).get_center())
+	check("the danger chips still answer (%d)" % game.danger, game.danger == 0)
 	game.free()
 
 # Enemies used to pick a uniformly random edge on every single spawn, which

@@ -209,6 +209,16 @@ func danger_rect(index: int) -> Rect2:
 func armory_back_rect() -> Rect2:
 	return Rect2(60, 60, 170, 52)
 
+# The survivor panel on the armory, and the BACK button on the controls screen.
+# Both were laid out inline where they are drawn, which is exactly how a thing
+# ends up visible and unclickable -- menu_action_at has nothing to test against.
+func character_panel_rect() -> Rect2:
+	return Rect2((SCREEN.x - 1000.0) * 0.5, 580, 1000, 150)
+
+func controls_back_rect() -> Rect2:
+	var after := 196.0 + float(game.CONTROL_ROWS.size()) * 52.0 + 30.0
+	return Rect2(Vector2((SCREEN.x - BUTTON_SIZE.x) * 0.5, after), BUTTON_SIZE)
+
 # The draggable part of a slider row, and the click position expressed as a
 # 0..1 ratio along it.
 func settings_bar_rect(index: int) -> Rect2:
@@ -251,8 +261,14 @@ func menu_action_at(point: Vector2) -> String:
 			if menu_button_rect(i).has_point(point): return actions[i]
 	elif game.state == "armory":
 		if armory_back_rect().has_point(point): return "back"
+		for i in range(GunCatalog.all().size()):
+			if gun_rect(i).has_point(point): return "gun_%d" % i
+		# One panel that steps to the next survivor, which is what C does.
+		if character_panel_rect().has_point(point): return "character"
 		for i in range(Balance.DANGER_LEVELS):
 			if danger_rect(i).has_point(point): return "danger_%d" % i
+	elif game.state == "controls":
+		if controls_back_rect().has_point(point): return "back"
 	elif game.state == "settings" or game.state == "settings_pause":
 		# Taken straight from menu_items so the clickable rows and the keyboard
 		# rows can never drift apart -- they did, the moment a row was added.
@@ -605,7 +621,7 @@ func draw_armory() -> void:
 		var unlocked := game.profile.is_gun_unlocked(i)
 		text_at(box.position + Vector2(26,158), "EQUIPPED" if selected and unlocked else ("UNLOCK  %d COINS" % guns[i].cost if not unlocked else "Press %d" % (i+1)), 16, Color("ffcf77"))
 	var character := CharacterCatalog.get_character(game.selected_character)
-	var panel := Rect2((SCREEN.x - 1000.0) * 0.5, 580, 1000, 150)
+	var panel := character_panel_rect()
 	draw_panel(panel, Color("182441"), character.color)
 	draw_character_art(Vector2(panel.position.x + 78.0, panel.get_center().y), character, 104.0)
 	text_at(panel.position + Vector2(150, 52), "C  %s" % character.name, 24, character.color)
@@ -727,7 +743,15 @@ func draw_hud() -> void:
 	# The banner and the bar say the same thing, and they said it in the same
 	# place. Once the bar is up it is the better of the two.
 	if game.profile.setting("show_fps"):
-		text_right(right, 118, "%d FPS" % int(Engine.get_frames_per_second()), 15, Color("7f8db0"))
+		# Top left, under the materials, and coloured by what it says. Tucked in
+		# the top right at 15px it sat on the arena border and was unreadable at
+		# exactly the moment it matters, which is while the screen is busy.
+		var fps := int(Engine.get_frames_per_second())
+		var tint := Color("69f4d4")
+		if fps < 30: tint = Color("ff718b")
+		elif fps < 55: tint = Color("ffd166")
+		text_at(Vector2(MARGIN, 96), "%d" % fps, 24, tint)
+		text_at(Vector2(MARGIN + text_width("%d" % fps, 24) + 10.0, 96), "FPS", 14, Color("5c6b8c"))
 	if s.boss_alive(): draw_boss_bar(s.boss)
 	elif s.round_number % 5 == 0 and s.round_phase == "combat" and s.round_time_left > s.round_length - 3.0:
 		text_centered(SCREEN.x * 0.5, 170, "BOSS RIFT OPEN", 24, Color("ffcf77"))
@@ -1123,9 +1147,9 @@ func draw_controls() -> void:
 		text_at(Vector2(key_x, box.get_center().y + 6.0), String(row.key), 18, Color("9fd8ff"))
 		var pad: String = String(row.pad) if row.has("pad") else game.pad_button_for(String(row.verb))
 		text_at(Vector2(pad_x, box.get_center().y + 6.0), pad if pad != "" else "—", 18, Color("ffd8a8"))
-	var after := top + float(rows.size()) * row_h + 30.0
-	draw_menu_button(Rect2(Vector2((SCREEN.x - 300.0) * 0.5, after), BUTTON_SIZE), "BACK", "back", Color("aabce1"))
-	draw_hint_row(SCREEN.x * 0.5, after + BUTTON_SIZE.y + 52.0,
+	var back := controls_back_rect()
+	draw_menu_button(back, "BACK", "back", Color("aabce1"))
+	draw_hint_row(SCREEN.x * 0.5, back.end.y + 52.0,
 		[["back", "ESC", "BACK"], ["confirm", "ENTER", "BACK"]])
 
 # A value between two arrows, so it reads as a thing you step through rather

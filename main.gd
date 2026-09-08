@@ -517,6 +517,9 @@ func handle_menu_action(action: String, at_seat: int = 0) -> void:
 		session.combine_weapon(int(action.trim_prefix("combine_")), at_seat)
 		clamp_focus(at_seat)
 		return
+	if action.begins_with("gun_"):
+		selected_gun = int(action.trim_prefix("gun_"))
+		return
 	if action.begins_with("danger_"):
 		set_danger(int(action.trim_prefix("danger_")))
 		return
@@ -532,6 +535,7 @@ func handle_menu_action(action: String, at_seat: int = 0) -> void:
 		"armory": state = "armory"
 		"awards": state = "awards"
 		"controls": open_controls()
+		"character": cycle_character(1)
 		"settings": open_settings()
 		"sfx", "music": set_slider(action, 0.0 if slider_value(action) > 0.0 else 0.7)
 		"rift": toggle_rift_effects()
@@ -584,8 +588,12 @@ func cycle_gun(step: int) -> void:
 	selected_gun = wrapi(selected_gun + step, 0, GunCatalog.all().size())
 	audio.play("ui_move")
 
+# Every way out of a screen goes through here, so a clicked BACK and a pressed
+# Escape cannot disagree about where "back" is. The controls screen was reached
+# by both and only the key knew the way out.
 func leave_back() -> void:
 	if state == "settings" or state == "settings_pause": leave_settings()
+	elif state == "controls": state = controls_from
 	else: state = "title"
 
 func is_fullscreen() -> bool:
