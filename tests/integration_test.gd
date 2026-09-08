@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 381
+const EXPECTED_CHECKS := 386
 var checks := 0
 
 func _initialize() -> void:
@@ -55,6 +55,7 @@ func bootstrap() -> void:
 	await test_pinning_an_offer()
 	await test_spawns_land_where_they_happened()
 	await test_coop_lobby()
+	await test_lobby_seats_follow_join_order()
 	await test_coop_two_players()
 	await test_coop_movement()
 	await test_coop_down_and_revive()
@@ -1543,12 +1544,13 @@ func test_coop_lobby() -> void:
 		game.session.seat(0) == null and game.session.class_counts(null).is_empty())
 
 	# joining is a hold, so a tap must not sign anybody up
-	game.lobby.tick_join(0, 0.1, true)
+	game.lobby.tick_join("kb", 0.1, true)
 	check("a tap does not join (%.0f%% held)" % (game.lobby.hold_ratio(0) * 100.0),
 		not bool(game.lobby.joined[0]) and game.lobby.hold_ratio(0) > 0.0)
-	game.lobby.tick_join(0, 0.05, false)
+	game.lobby.tick_join("kb", 0.05, false)
 	check("and letting go loses the progress", is_zero_approx(game.lobby.hold_ratio(0)))
-	check("holding it through joins", game.lobby.tick_join(0, Lobby.HOLD_TIME, true) and bool(game.lobby.joined[0]))
+	check("holding it through joins",
+		game.lobby.tick_join("kb", Lobby.HOLD_TIME, true) == 0 and bool(game.lobby.joined[0]))
 
 	# one player cannot take a co-op run out on their own
 	game.lobby.locked[0] = true
@@ -1556,7 +1558,7 @@ func test_coop_lobby() -> void:
 	check("one player alone cannot move on (%s)" % game.lobby.stage, game.lobby.stage == "character")
 	game.lobby.locked[0] = false
 
-	game.lobby.tick_join(1, Lobby.HOLD_TIME, true)
+	game.lobby.tick_join("pad0", Lobby.HOLD_TIME, true)
 	check("the second player joins from the same screen", game.lobby.everyone_in())
 
 	# each seat steers its own row
@@ -1605,6 +1607,29 @@ func test_coop_lobby() -> void:
 		game.session.seat(0).weapons[0].id == opening)
 	game.free()
 
+# Seats are handed out in the order people finish holding, and any pair of
+# devices is valid. There is no "the keyboard is player one" any more.
+func test_lobby_seats_follow_join_order() -> void:
+	var game = await fresh_game()
+	game.lobby.reset([0], [0])
+	# The second pad joins first, so it *is* player one.
+	check("the first to finish holding takes seat 0",
+		game.lobby.tick_join("pad1", Lobby.HOLD_TIME, true) == 0)
+	check("and the next one takes seat 1",
+		game.lobby.tick_join("kb", Lobby.HOLD_TIME, true) == 1)
+	check("which is the order they are recorded in (%s)" % str(game.lobby.seat_device),
+		game.lobby.seat_device[0] == "pad1" and game.lobby.seat_device[1] == "kb")
+	# Two pads is as valid a pairing as a pad and a keyboard.
+	game.lobby.reset([0], [0])
+	game.lobby.tick_join("pad0", Lobby.HOLD_TIME, true)
+	game.lobby.tick_join("pad1", Lobby.HOLD_TIME, true)
+	check("two controllers can hold both seats (%s)" % str(game.lobby.seat_device),
+		game.lobby.seat_device[0] == "pad0" and game.lobby.seat_device[1] == "pad1")
+	# And each pad reads its own actions, or one would steer both.
+	check("each pad has its own movement actions",
+		Controls.actions_for("pad0") != Controls.actions_for("pad1"))
+	game.free()
+
 func coop_game() -> Node:
 	var game = load("res://Main.tscn").instantiate()
 	root.add_child(game)
@@ -1622,14 +1647,14 @@ func test_coop_two_players() -> void:
 	# The whole reason Controls exists: on one machine, a shared move action
 	# would have each player dragging the other around.
 	check("each pinned to its own device (%s / %s)" % [s.seat(0).device, s.seat(1).device],
-		s.seat(0).device == "keyboard" and s.seat(1).device == "pad")
+		s.seat(0).device == "kb" and s.seat(1).device == "pad0")
 	check("and the bodies read those devices",
-		s.seat(0).player.input_source == "keyboard" and s.seat(1).player.input_source == "pad")
+		s.seat(0).player.input_source == "kb" and s.seat(1).player.input_source == "pad0")
 	var apart: float = s.seat(0).player.position.distance_to(s.seat(1).player.position)
 	check("they start apart, not stacked (%.0fpx)" % apart, apart > 100.0)
 	check("with a rack each", not s.seat(1).weapons.is_empty() and s.seat(0).weapons != s.seat(1).weapons)
-	check("the keyboard drives seat 0 and the pad seat 1",
-		game.seat_for("keyboard") == 0 and game.seat_for("pad") == 1)
+	check("each device drives its own seat",
+		game.seat_for("kb") == 0 and game.seat_for("pad0") == 1)
 
 	# an enemy goes for whoever is closest, and never for somebody who is down
 	clear_field(s)
@@ -1650,7 +1675,7 @@ func test_coop_movement() -> void:
 	var game = await coop_game()
 	var s = game.session
 	var missing: Array[String] = []
-	for action in Controls.KEYBOARD + Controls.PAD:
+	for action in Controls.KEYBOARD + Controls.PADS[0] + Controls.PADS[1]:
 		if not InputMap.has_action(String(action)): missing.append(String(action))
 	check("the per-device actions exist (%s)" % ("all present" if missing.is_empty() else str(missing)),
 		missing.is_empty())
@@ -1670,9 +1695,9 @@ func test_coop_movement() -> void:
 
 	one = s.seat(0).player.position
 	two = s.seat(1).player.position
-	Input.action_press("pad_left")
+	Input.action_press("pad0_left")
 	await step(8)
-	Input.action_release("pad_left")
+	Input.action_release("pad0_left")
 	check("the pad moves player two (%.0fpx)" % s.seat(1).player.position.distance_to(two),
 		s.seat(1).player.position.distance_to(two) > 20.0)
 	check("and leaves player one where they were (%.0fpx)" % s.seat(0).player.position.distance_to(one),

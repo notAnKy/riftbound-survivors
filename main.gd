@@ -12,7 +12,7 @@ const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause",
 const SLIDER_ROWS := ["sfx", "music"]
 # Settings rows that step through a list. Left and right cycle them, the same
 # way left and right slide a volume bar.
-const CHOICE_ROWS := ["window", "resolution", "quality"]
+const CHOICE_ROWS := ["window", "resolution", "quality", "fps"]
 # A single tap is a fine nudge; holding the direction sweeps at SLIDER_RATE of
 # the full range per second. One step per press made a volume bar something you
 # could only move in chunks, which is not what a slider is for.
@@ -105,9 +105,18 @@ func set_cursor(at_seat: int, value: int) -> void:
 
 # Which player an input belongs to. Solo has one seat and everything lands on
 # it; co-op splits by device, which is the whole reason Controls exists.
+# Which player an input belongs to. Solo has one seat and everything lands on
+# it; co-op looks up the device that actually claimed a seat in the lobby, so
+# two pads work as readily as a pad and a keyboard.
 func seat_for(device: String) -> int:
 	if not coop: return 0
-	return 1 if device == "pad" else 0
+	# Once a run exists the session is the authority on who holds what; the
+	# lobby only answers before there are any survivors to ask.
+	for i in range(session.seats()):
+		var who := session.seat(i)
+		if who != null and who.device == device: return i
+	var seat := lobby.seat_device.find(device)
+	return seat if seat >= 0 else 0
 
 func seat_count() -> int:
 	return 2 if coop else 1
@@ -232,7 +241,7 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 	var items: Array[String] = []
 	match state:
 		"title": items.assign(["play", "coop", "armory", "awards", "settings", "quit"])
-		"settings", "settings_pause": items.assign(["sfx", "music", "window", "resolution", "quality", "rift", "controls", "back"])
+		"settings", "settings_pause": items.assign(["sfx", "music", "window", "resolution", "quality", "fps", "showfps", "rift", "controls", "back"])
 		"paused": items.assign(["resume", "settings", "menu"])
 		"confirm_quit": items.assign(["quit_run", "keep_playing"])
 		"level_up":
@@ -362,12 +371,12 @@ func open_lobby() -> void:
 # must not sign anybody up.
 func poll_lobby(delta: float) -> void:
 	if state != "lobby": return
-	for i in range(Lobby.SEATS):
-		var held := false
-		if i == 0: held = Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_ENTER)
-		elif Gamepad.connected(): held = Input.is_joy_button_pressed(0, Gamepad.CROSS)
-		if lobby.tick_join(i, delta, held):
-			input_device = "keyboard" if i == 0 else "pad"
+	# Polled per device rather than per seat: which seat somebody lands in is
+	# decided by the order the holds finish, not by what they are holding.
+	for device in Controls.join_candidates():
+		var seat := lobby.tick_join(String(device), delta, Controls.join_held(String(device)))
+		if seat >= 0:
+			input_device = "pad" if Controls.is_pad(String(device)) else "keyboard"
 			audio.play("ui_click")
 
 # The lobby is not a list: each seat steers its own row, and nobody moves on
@@ -440,6 +449,8 @@ func start_run(two_player: bool = false) -> void:
 	var picked_guns: Array[int] = lobby.guns() if coop else ([] as Array[int])
 	session.seat_characters = picked_characters
 	session.seat_guns = picked_guns
+	# Which physical device drives which seat, in join order.
+	session.seat_devices = lobby.seat_device.duplicate() if coop else []
 	session.reset_run()
 	# No argument: every survivor keeps the character it was built with, which in
 	# co-op is the one that seat picked for itself.
@@ -521,7 +532,8 @@ func handle_menu_action(action: String, at_seat: int = 0) -> void:
 		"sfx", "music": set_slider(action, 0.0 if slider_value(action) > 0.0 else 0.7)
 		"rift": toggle_rift_effects()
 		# Confirm on a choice row steps it forward; left and right also work.
-		"window", "resolution", "quality": cycle_choice(action, 1)
+		"window", "resolution", "quality", "fps": cycle_choice(action, 1)
+		"showfps": profile.set_setting("show_fps", not profile.setting("show_fps"))
 		"resume": state = "playing"
 		# Abandoning a run pays no coins, unlike dying, so it asks first.
 		"menu": state = "confirm_quit"
@@ -592,12 +604,15 @@ func cycle_choice(row: String, step: int) -> void:
 			profile.set_choice("resolution", wrapi(profile.choice("resolution") + step, 0, DisplaySettings.RESOLUTIONS.size()))
 		"quality":
 			profile.set_choice("quality", wrapi(profile.choice("quality") + step, 0, DisplaySettings.QUALITY.size()))
+		"fps":
+			profile.set_choice("fps_cap", wrapi(profile.choice("fps_cap") + step, 0, DisplaySettings.FPS_CAPS.size()))
 	apply_display()
 
 # Everything the three settings actually do, in one place, so boot and a change
 # take exactly the same path.
 func apply_display() -> void:
 	DisplaySettings.apply_window(get_window(), profile.choice("window_mode"), profile.choice("resolution"))
+	DisplaySettings.apply_fps(profile.choice("fps_cap"))
 	var quality := profile.choice("quality")
 	session.number_cap = DisplaySettings.numbers_cap(quality)
 	session.shake_scale = DisplaySettings.shake_scale(quality)
@@ -898,7 +913,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		handle_menu_action(clicked)
 		return
 	if event is InputEventJoypadButton and (event as InputEventJoypadButton).pressed:
-		handle_verb(pad_verb((event as InputEventJoypadButton).button_index), seat_for("pad"))
+		# The event carries which pad it came from, so two controllers land in
+		# their own seats rather than both driving player one.
+		var pad := event as InputEventJoypadButton
+		handle_verb(pad_verb(pad.button_index), seat_for(Controls.device_of(pad)))
 		return
 	if not (event is InputEventKey and (event as InputEventKey).pressed and not (event as InputEventKey).echo): return
 	var key := event as InputEventKey
@@ -912,9 +930,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Space has always meant "leave the shop", whatever the cursor happens to be
 	# resting on, so it is answered before it can be read as a plain confirm.
 	if state == "shop" and key.keycode == KEY_SPACE:
-		leave_shop(seat_for("keyboard"))
+		leave_shop(seat_for("kb"))
 		return
-	if handle_verb(key_verb(key.keycode), seat_for("keyboard")): return
+	if handle_verb(key_verb(key.keycode), seat_for("kb")): return
 	# What is left is each screen's own letter shortcuts. Arrows, Enter, Space
 	# and Escape never reach here -- they are verbs, and work on a pad too.
 	if state == "title":
@@ -938,13 +956,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		if key.keycode == KEY_S: open_settings()
 		elif key.keycode == KEY_Q: state = "confirm_quit"
 	elif state == "shop":
-		if key.keycode >= KEY_1 and key.keycode <= KEY_4: session.buy(key.keycode - KEY_1, seat_for("keyboard"))
-		elif key.keycode == KEY_R: session.reroll_shop(seat_for("keyboard"))
+		if key.keycode >= KEY_1 and key.keycode <= KEY_4: session.buy(key.keycode - KEY_1, seat_for("kb"))
+		elif key.keycode == KEY_R: session.reroll_shop(seat_for("kb"))
 		elif key.keycode == KEY_L:
-			var pin := focused_offer(seat_for("keyboard"))
-			if pin >= 0: session.toggle_lock(pin, seat_for("keyboard"))
+			var pin := focused_offer(seat_for("kb"))
+			if pin >= 0: session.toggle_lock(pin, seat_for("kb"))
 	elif state == "level_up":
-		if key.keycode >= KEY_1 and key.keycode <= KEY_4: choose_upgrade(key.keycode - KEY_1, seat_for("keyboard"))
+		if key.keycode >= KEY_1 and key.keycode <= KEY_4: choose_upgrade(key.keycode - KEY_1, seat_for("kb"))
 	elif state == "playing":
-		if key.keycode == KEY_Q: session.dash(seat_for("keyboard"))
-		elif key.keycode == KEY_E: session.rift_nova(seat_for("keyboard"))
+		if key.keycode == KEY_Q: session.dash(seat_for("kb"))
+		elif key.keycode == KEY_E: session.rift_nova(seat_for("kb"))

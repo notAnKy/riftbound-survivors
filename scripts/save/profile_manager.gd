@@ -15,6 +15,8 @@ const DEFAULTS := {
 	"window_mode": 0,
 	"resolution": 1,
 	"quality": 2,
+	"fps_cap": 1,
+	"show_fps": false,
 	"sfx_volume": 0.7,
 	"music_volume": 0.45,
 }
@@ -54,13 +56,14 @@ func sanitized(parsed: Dictionary) -> Dictionary:
 				if not (id in earned): earned.append(String(id))
 	clean.achievements = earned
 	clean.unlocked_characters = sanitized_unlocks(parsed.get("unlocked_characters"), CharacterCatalog.all().size())
-	for flag in ["rift_effects", "fullscreen"]:
+	for flag in ["rift_effects", "fullscreen", "show_fps"]:
 		if parsed.get(flag) is bool: clean[flag] = parsed[flag]
 	# Indices, clamped to the list they point into: an out-of-range one off an
 	# older build would otherwise crash the settings screen on first draw.
 	for choice in [["window_mode", DisplaySettings.WINDOW_MODES.size()],
 			["resolution", DisplaySettings.RESOLUTIONS.size()],
-			["quality", DisplaySettings.QUALITY.size()]]:
+			["quality", DisplaySettings.QUALITY.size()],
+			["fps_cap", DisplaySettings.FPS_CAPS.size()]]:
 		var picked = parsed.get(choice[0])
 		if picked is float or picked is int:
 			clean[choice[0]] = clampi(int(picked), 0, int(choice[1]) - 1)

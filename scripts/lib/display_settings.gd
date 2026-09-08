@@ -20,6 +20,17 @@ const QUALITY_NUMBERS := [18, 36, 60]
 const QUALITY_PROPS := [0, 10, 22]
 const QUALITY_SHAKE := [0.0, 0.7, 1.0]
 
+# 0 is Godot's "no cap". A cap is worth having even on a machine that can go
+# faster: an uncapped loop heats a laptop for frames nobody sees.
+const FPS_CAPS := [30, 60, 120, 144, 240, 0]
+const FPS_LABELS := ["30", "60", "120", "144", "240", "UNLIMITED"]
+
+static func fps_label(index: int) -> String:
+	return String(FPS_LABELS[clampi(index, 0, FPS_LABELS.size() - 1)])
+
+static func apply_fps(index: int) -> void:
+	Engine.max_fps = int(FPS_CAPS[clampi(index, 0, FPS_CAPS.size() - 1)])
+
 static func resolution_label(index: int) -> String:
 	var size: Vector2i = RESOLUTIONS[clampi(index, 0, RESOLUTIONS.size() - 1)]
 	return "%d x %d" % [size.x, size.y]

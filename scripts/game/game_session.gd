@@ -210,6 +210,10 @@ func _process(delta: float) -> void:
 	elif position != view_origin:
 		position = view_origin
 
+# Devices the lobby assigned, in seat order. Empty for solo, which reads them
+# all anyway.
+var seat_devices: Array = []
+
 func reset_run() -> void:
 	for group in [actors, shots, pickups, numbers]:
 		for child in group.get_children():
@@ -243,7 +247,14 @@ func reset_run() -> void:
 func build_survivor(index: int, count: int) -> Survivor:
 	var who := Survivor.new()
 	who.seat = index
-	who.device = "any" if count == 1 else ("keyboard" if index == 0 else "pad")
+	# Solo reads every device at once. Co-op takes whatever the lobby handed
+	# this seat, which is a concrete device -- kb, pad0 or pad1. A co-op run
+	# started without a lobby (the suite, and start_run from code) still has to
+	# get two *different* devices, or both bodies read the shared actions and
+	# each player drags the other -- the bug Controls exists to prevent.
+	var assigned := String(seat_devices[index]) if index < seat_devices.size() else ""
+	if assigned == "": assigned = "kb" if index == 0 else "pad0"
+	who.device = "any" if count == 1 else assigned
 	var chosen: int = int(seat_characters[index]) if index < seat_characters.size() else selected_character
 	var character := CharacterCatalog.get_character(chosen)
 	who.character = chosen

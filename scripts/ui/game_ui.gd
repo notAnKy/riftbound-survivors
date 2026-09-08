@@ -21,6 +21,10 @@ const SLOT_GAP := 14.0
 const UPGRADE_TOP := 400.0
 
 const ROW_SIZE := Vector2(700, 66)
+# Settings has ten rows now and they have to fit above MENU_FOOTER, so its rows
+# are their own, shorter size rather than the shared menu one.
+const SETTINGS_ROW := Vector2(700, 54)
+const SETTINGS_GAP := 8.0
 const ROW_GAP := 12.0
 # Lifted when the display rows arrived: eight rows plus a hint line and the
 # mouse footer no longer fit under the old start. Same failure the title screen
@@ -216,7 +220,7 @@ func slider_ratio_at(index: int, point: Vector2) -> float:
 	return clampf((point.x - bar.position.x) / maxf(bar.size.x, 1.0), 0.0, 1.0)
 
 func settings_row_rect(index: int) -> Rect2:
-	return Rect2(Vector2((SCREEN.x - ROW_SIZE.x) * 0.5, SETTINGS_TOP + index * (ROW_SIZE.y + ROW_GAP)), ROW_SIZE)
+	return Rect2(Vector2((SCREEN.x - SETTINGS_ROW.x) * 0.5, SETTINGS_TOP + index * (SETTINGS_ROW.y + SETTINGS_GAP)), SETTINGS_ROW)
 
 func pause_row_rect(index: int) -> Rect2:
 	return Rect2(Vector2((SCREEN.x - ROW_SIZE.x) * 0.5, PAUSE_TOP + index * (ROW_SIZE.y + ROW_GAP)), ROW_SIZE)
@@ -711,6 +715,8 @@ func draw_hud() -> void:
 		text_at(Vector2(right - 520, bar_y - 10), "LEVEL %d  •  XP %d / %d" % [s.level, s.xp, s.xp_to_next], 16, Color("d0fff7"))
 	# The banner and the bar say the same thing, and they said it in the same
 	# place. Once the bar is up it is the better of the two.
+	if game.profile.setting("show_fps"):
+		text_right(right, 118, "%d FPS" % int(Engine.get_frames_per_second()), 15, Color("7f8db0"))
 	if s.boss_alive(): draw_boss_bar(s.boss)
 	elif s.round_number % 5 == 0 and s.round_phase == "combat" and s.round_time_left > s.round_length - 3.0:
 		text_centered(SCREEN.x * 0.5, 170, "BOSS RIFT OPEN", 24, Color("ffcf77"))
@@ -1064,6 +1070,9 @@ func draw_settings(title: String, footer: String) -> void:
 			"dim": game.profile.choice("window_mode") != 0},
 		{"action": "quality", "key": "", "label": "Quality",
 			"value": DisplaySettings.QUALITY[game.profile.choice("quality")]},
+		{"action": "fps", "key": "", "label": "Frame Rate Cap",
+			"value": DisplaySettings.fps_label(game.profile.choice("fps_cap"))},
+		{"action": "showfps", "key": "", "label": "Show FPS", "on": game.profile.setting("show_fps")},
 		{"action": "rift", "key": "V", "label": "Rift Effects", "on": game.rift_effects_enabled},
 	]
 	for i in range(rows.size()):
