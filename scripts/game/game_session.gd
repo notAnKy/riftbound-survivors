@@ -16,6 +16,9 @@ const SWING_SCENE := preload("res://scenes/actors/MeleeSwing.tscn")
 # A fast weapon can land dozens of hits a second; past this many live numbers
 # the screen is unreadable anyway, so stop adding to it.
 const MAX_NUMBERS := 60
+# Overridden from the quality preset. Damage numbers are the single thing that
+# multiplies fastest with the crowd, so they are the first thing a low preset
+# takes away.
 const MAX_WEAPONS := 6
 
 @onready var actors: Node2D = $Actors
@@ -41,6 +44,9 @@ var kills := 0
 var bosses_killed := 0
 # The boss currently on the field, for the HUD's bar. Read through boss_alive().
 var boss: Enemy = null
+# Set from the quality preset at boot and whenever it changes.
+var number_cap := MAX_NUMBERS
+var shake_scale := 1.0
 # Directions the crowd is currently arriving from, and the clock that moves
 # them. See Balance.SPAWN_GATE_SECONDS for why this is not just a random edge.
 var spawn_gates: Array[float] = []
@@ -191,7 +197,7 @@ func fit_view() -> void:
 # Shake offsets the whole session node, which carries the arena and every
 # actor but not the HUD -- that lives on a sibling and has to stay still.
 func add_shake(amount: float) -> void:
-	shake = minf(shake + amount, Balance.SHAKE_MAX)
+	shake = minf(shake + amount * shake_scale, Balance.SHAKE_MAX)
 
 func hit_stop(seconds: float) -> void:
 	hitstop_until = Time.get_ticks_msec() + int(seconds * 1000.0)
@@ -676,7 +682,7 @@ func spawn_enemy(def: Dictionary, at: Vector2, is_boss: bool, is_elite: bool = f
 
 func on_enemy_damaged(at: Vector2, amount: float, crit: bool) -> void:
 	audio.play("crit" if crit else "hit")
-	if numbers.get_child_count() >= MAX_NUMBERS: return
+	if numbers.get_child_count() >= number_cap: return
 	var number: DamageNumber = NUMBER_SCENE.instantiate()
 	number.setup(at, amount, crit)
 	# Added straight away, not deferred: a DamageNumber carries no collision

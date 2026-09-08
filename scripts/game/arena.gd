@@ -34,6 +34,9 @@ const PROPS := [
 ]
 const PROP_SCALE := 0.9
 const PROP_COUNT := 16
+# Overridden by the quality preset, so a machine that struggles can drop the
+# scatter entirely. Nothing plays off it -- props have no collision.
+static var prop_budget := PROP_COUNT
 const PROP_SEED := 20260906
 
 func _ready() -> void:
@@ -98,7 +101,7 @@ func scatter_props() -> void:
 	var centre := BOUNDS.get_center()
 	var placed := 0
 	var guard := 0
-	while placed < PROP_COUNT and guard < 400:
+	while placed < prop_budget and guard < 400:
 		guard += 1
 		var spot := Vector2(rng.randf_range(field.position.x, field.end.x),
 			rng.randf_range(field.position.y, field.end.y))

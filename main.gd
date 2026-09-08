@@ -10,6 +10,9 @@ const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause",
 # Settings rows that hold a value rather than a yes/no, so left and right
 # adjust them instead of activating them.
 const SLIDER_ROWS := ["sfx", "music"]
+# Settings rows that step through a list. Left and right cycle them, the same
+# way left and right slide a volume bar.
+const CHOICE_ROWS := ["window", "resolution", "quality"]
 # A single tap is a fine nudge; holding the direction sweeps at SLIDER_RATE of
 # the full range per second. One step per press made a volume bar something you
 # could only move in chunks, which is not what a slider is for.
@@ -150,7 +153,9 @@ func _ready() -> void:
 	audio.set_volume(profile.level("sfx_volume"))
 	audio.set_music_volume(profile.level("music_volume"))
 	danger = profile.max_danger()
-	if profile.setting("fullscreen"): toggle_fullscreen()
+	# One call for window mode, resolution and quality: boot and a settings
+	# change take the same path, so they cannot disagree.
+	apply_display()
 	session.level_up_requested.connect(func() -> void: state = "level_up")
 	session.wave_cleared.connect(func() -> void: state = "shop")
 	session.run_ended.connect(on_run_ended)
@@ -227,7 +232,7 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 	var items: Array[String] = []
 	match state:
 		"title": items.assign(["play", "coop", "armory", "awards", "settings", "quit"])
-		"settings", "settings_pause": items.assign(["sfx", "music", "rift", "fullscreen", "controls", "back"])
+		"settings", "settings_pause": items.assign(["sfx", "music", "window", "resolution", "quality", "rift", "controls", "back"])
 		"paused": items.assign(["resume", "settings", "menu"])
 		"confirm_quit": items.assign(["quit_run", "keep_playing"])
 		"level_up":
@@ -331,6 +336,7 @@ func move_focus(step: int, vertical: bool, at_seat: int = 0) -> void:
 		# bar slides, and anything else simply activates.
 		var row := focused_action(at_seat)
 		if row in SLIDER_ROWS: nudge_slider(row, SLIDER_STEP * float(step))
+		elif row in CHOICE_ROWS: cycle_choice(row, step)
 		else: activate_menu(at_seat)
 		return
 	if vertical: jump_group(step, at_seat)
@@ -514,7 +520,8 @@ func handle_menu_action(action: String, at_seat: int = 0) -> void:
 		"settings": open_settings()
 		"sfx", "music": set_slider(action, 0.0 if slider_value(action) > 0.0 else 0.7)
 		"rift": toggle_rift_effects()
-		"fullscreen": toggle_fullscreen()
+		# Confirm on a choice row steps it forward; left and right also work.
+		"window", "resolution", "quality": cycle_choice(action, 1)
 		"resume": state = "playing"
 		# Abandoning a run pays no coins, unlike dying, so it asks first.
 		"menu": state = "confirm_quit"
@@ -569,10 +576,32 @@ func is_fullscreen() -> bool:
 	var mode := get_window().mode
 	return mode == Window.MODE_FULLSCREEN or mode == Window.MODE_EXCLUSIVE_FULLSCREEN
 
+# F11 and the settings row are the same switch: windowed <-> borderless.
 func toggle_fullscreen() -> void:
-	# Borderless rather than exclusive fullscreen, so alt-tab stays instant.
-	get_window().mode = Window.MODE_WINDOWED if is_fullscreen() else Window.MODE_FULLSCREEN
-	profile.set_setting("fullscreen", is_fullscreen())
+	profile.set_choice("window_mode", 0 if is_fullscreen() else 1)
+	apply_display()
+
+# The three display settings, as one list each. `step` wraps, so a pad can walk
+# a setting in either direction without a separate "back" row.
+func cycle_choice(row: String, step: int) -> void:
+	audio.play("ui_move")
+	match row:
+		"window":
+			profile.set_choice("window_mode", wrapi(profile.choice("window_mode") + step, 0, DisplaySettings.WINDOW_MODES.size()))
+		"resolution":
+			profile.set_choice("resolution", wrapi(profile.choice("resolution") + step, 0, DisplaySettings.RESOLUTIONS.size()))
+		"quality":
+			profile.set_choice("quality", wrapi(profile.choice("quality") + step, 0, DisplaySettings.QUALITY.size()))
+	apply_display()
+
+# Everything the three settings actually do, in one place, so boot and a change
+# take exactly the same path.
+func apply_display() -> void:
+	DisplaySettings.apply_window(get_window(), profile.choice("window_mode"), profile.choice("resolution"))
+	var quality := profile.choice("quality")
+	session.number_cap = DisplaySettings.numbers_cap(quality)
+	session.shake_scale = DisplaySettings.shake_scale(quality)
+	Arena.prop_budget = DisplaySettings.prop_count(quality)
 
 func slider_value(action: String) -> float:
 	return audio.volume if action == "sfx" else audio.music_volume

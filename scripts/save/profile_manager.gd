@@ -11,6 +11,10 @@ const DEFAULTS := {
 	"max_danger": 0,
 	"rift_effects": true,
 	"fullscreen": false,
+	# Indices into DisplaySettings.WINDOW_MODES / RESOLUTIONS / QUALITY.
+	"window_mode": 0,
+	"resolution": 1,
+	"quality": 2,
 	"sfx_volume": 0.7,
 	"music_volume": 0.45,
 }
@@ -52,6 +56,14 @@ func sanitized(parsed: Dictionary) -> Dictionary:
 	clean.unlocked_characters = sanitized_unlocks(parsed.get("unlocked_characters"), CharacterCatalog.all().size())
 	for flag in ["rift_effects", "fullscreen"]:
 		if parsed.get(flag) is bool: clean[flag] = parsed[flag]
+	# Indices, clamped to the list they point into: an out-of-range one off an
+	# older build would otherwise crash the settings screen on first draw.
+	for choice in [["window_mode", DisplaySettings.WINDOW_MODES.size()],
+			["resolution", DisplaySettings.RESOLUTIONS.size()],
+			["quality", DisplaySettings.QUALITY.size()]]:
+		var picked = parsed.get(choice[0])
+		if picked is float or picked is int:
+			clean[choice[0]] = clampi(int(picked), 0, int(choice[1]) - 1)
 	for level in ["sfx_volume", "music_volume"]:
 		var value = parsed.get(level)
 		if value is float or value is int: clean[level] = clampf(float(value), 0.0, 1.0)
@@ -155,6 +167,14 @@ func setting(name: String) -> bool:
 	return bool(data.get(name, DEFAULTS[name]))
 
 func set_setting(name: String, value: bool) -> void:
+	data[name] = value
+	save_profile()
+
+# Integer settings that pick out of a list, as opposed to the bool ones above.
+func choice(name: String) -> int:
+	return int(data.get(name, DEFAULTS[name]))
+
+func set_choice(name: String, value: int) -> void:
 	data[name] = value
 	save_profile()
 

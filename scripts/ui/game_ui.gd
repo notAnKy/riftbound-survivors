@@ -22,7 +22,11 @@ const UPGRADE_TOP := 400.0
 
 const ROW_SIZE := Vector2(700, 66)
 const ROW_GAP := 12.0
-const SETTINGS_TOP := 380.0
+# Lifted when the display rows arrived: eight rows plus a hint line and the
+# mouse footer no longer fit under the old start. Same failure the title screen
+# had when it grew a sixth row -- a footer placed relative to the last row goes
+# off the bottom rather than overlapping, which is quieter and worse.
+const SETTINGS_TOP := 296.0
 const PAUSE_TOP := 450.0
 const CONFIRM_TOP := 520.0
 
@@ -1047,15 +1051,24 @@ func draw_confirm_quit() -> void:
 
 func draw_settings(title: String, footer: String) -> void:
 	fill_screen(Color("0b1020"))
-	heading(SCREEN.x * 0.5, 300, title, 40, Color("eaf1ff"))
+	heading(SCREEN.x * 0.5, 226, title, 40, Color("eaf1ff"))
 	var rows := [
 		{"action": "sfx", "key": "", "label": "Sound Volume", "level": game.audio.volume},
 		{"action": "music", "key": "", "label": "Music Volume", "level": game.audio.music_volume},
+		{"action": "window", "key": "", "label": "Window Mode",
+			"value": DisplaySettings.WINDOW_MODES[game.profile.choice("window_mode")]},
+		# Only a window has a size worth setting; both fullscreen modes take the
+		# monitor. Greyed rather than hidden, so the row does not move about.
+		{"action": "resolution", "key": "", "label": "Resolution",
+			"value": DisplaySettings.resolution_label(game.profile.choice("resolution")),
+			"dim": game.profile.choice("window_mode") != 0},
+		{"action": "quality", "key": "", "label": "Quality",
+			"value": DisplaySettings.QUALITY[game.profile.choice("quality")]},
 		{"action": "rift", "key": "V", "label": "Rift Effects", "on": game.rift_effects_enabled},
-		{"action": "fullscreen", "key": "F11", "label": "Fullscreen", "on": game.is_fullscreen()},
 	]
 	for i in range(rows.size()):
 		if rows[i].has("level"): draw_slider_row(i, rows[i])
+		elif rows[i].has("value"): draw_choice_row(settings_row_rect(i), rows[i])
 		else: draw_toggle_row(settings_row_rect(i), rows[i])
 	draw_menu_button(settings_row_rect(rows.size()), "CONTROLS", "controls", Color("82b7ff"))
 	draw_menu_button(settings_row_rect(rows.size() + 1), "BACK", "back", Color("aabce1"))
@@ -1094,6 +1107,24 @@ func draw_controls() -> void:
 	draw_menu_button(Rect2(Vector2((SCREEN.x - 300.0) * 0.5, after), BUTTON_SIZE), "BACK", "back", Color("aabce1"))
 	draw_hint_row(SCREEN.x * 0.5, after + BUTTON_SIZE.y + 52.0,
 		[["back", "ESC", "BACK"], ["confirm", "ENTER", "BACK"]])
+
+# A value between two arrows, so it reads as a thing you step through rather
+# than a thing you switch on. The arrows are drawn even when dimmed: the row is
+# still selectable, it just will not do anything visible until you leave
+# fullscreen, and hiding them would make it look broken instead of inactive.
+func draw_choice_row(rect: Rect2, row: Dictionary) -> void:
+	var focused := is_focused(String(row.action))
+	var dim: bool = bool(row.get("dim", false))
+	draw_panel(rect, Color(0.10,0.15,0.27,0.95) if focused else Color("182441"),
+		Color("d6e2fa") if focused else Color("3d527d"), 3.0 if focused else 1.5)
+	if focused: draw_rect(Rect2(rect.position, Vector2(6, rect.size.y)), Color("ffe09b"))
+	var label_tint := Color("6f7fa4") if dim else Color("e8efff")
+	var value_tint := Color("5c6b8c") if dim else Color("9fd8ff")
+	text_at(Vector2(rect.position.x + 28.0, rect.get_center().y + 8.0), String(row.label), 21, label_tint)
+	var mid := rect.end.x - 150.0
+	text_centered(mid, rect.get_center().y + 8.0, String(row.value), 20, value_tint)
+	text_at(Vector2(mid - 120.0, rect.get_center().y + 8.0), "<", 22, value_tint)
+	text_at(Vector2(mid + 108.0, rect.get_center().y + 8.0), ">", 22, value_tint)
 
 func draw_slider_row(index: int, row: Dictionary) -> void:
 	var rect := settings_row_rect(index)

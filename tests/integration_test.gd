@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 376
+const EXPECTED_CHECKS := 381
 var checks := 0
 
 func _initialize() -> void:
@@ -708,11 +708,44 @@ func test_menu_navigation() -> void:
 	# The mouse and the keyboard cursor must not disagree about the target.
 	game.state = "settings"
 	game.menu_index = 0
-	var full_row: int = game.menu_items().find("fullscreen")
+	var full_row: int = game.menu_items().find("quality")
 	game.sync_hover(game.ui.settings_row_rect(full_row).get_center())
-	check("hovering moves the keyboard cursor onto that row (%d)" % game.menu_index, game.menu_index == full_row and game.menu_hover == "fullscreen")
+	check("hovering moves the keyboard cursor onto that row (%d)" % game.menu_index, game.menu_index == full_row and game.menu_hover == "quality")
 	game.sync_hover(Vector2(5, 5))
 	check("moving off the rows leaves the cursor where it was (%d)" % game.menu_index, game.menu_index == full_row and game.menu_hover == "")
+
+	# The three display settings step through a list rather than toggling, and
+	# they wrap, so a pad can walk one either way without a "back" row.
+	game.menu_index = game.menu_items().find("quality")
+	var quality_before: int = game.profile.choice("quality")
+	game.handle_verb("nav_right")
+	check("right steps a choice row (%d -> %d)" % [quality_before, game.profile.choice("quality")],
+		game.profile.choice("quality") != quality_before)
+	game.handle_verb("nav_left")
+	check("and left steps it back (%d)" % game.profile.choice("quality"),
+		game.profile.choice("quality") == quality_before)
+	for i in range(DisplaySettings.QUALITY.size() + 1):
+		game.handle_verb("nav_right")
+	check("choices wrap rather than sticking at the end (%d)" % game.profile.choice("quality"),
+		game.profile.choice("quality") >= 0 and game.profile.choice("quality") < DisplaySettings.QUALITY.size())
+	# Quality is a frame-cost dial: it has to actually reach the things that
+	# multiply with the crowd, not merely be remembered.
+	game.profile.set_choice("quality", 0)
+	game.apply_display()
+	var low_numbers: int = game.session.number_cap
+	game.profile.set_choice("quality", DisplaySettings.QUALITY.size() - 1)
+	game.apply_display()
+	check("quality changes the damage-number budget (%d -> %d)" % [low_numbers, game.session.number_cap],
+		game.session.number_cap > low_numbers)
+
+	# Settings grew to eight rows plus a hint line and a mouse footer. The same
+	# thing that broke the title screen breaks this one: a footer placed under
+	# the last row leaves the screen instead of overlapping something.
+	var rows_here: int = game.menu_items().size()
+	var last_row: Rect2 = game.ui.settings_row_rect(rows_here - 1)
+	check("the settings rows and their footer fit the screen (%.0f + %.0f of %.0f)"
+		% [last_row.end.y, GameUI.MENU_FOOTER, GameUI.SCREEN.y],
+		last_row.end.y + GameUI.MENU_FOOTER <= GameUI.SCREEN.y)
 
 	# The title menu and its footer have to fit the screen. Adding a sixth row
 	# once pushed QUIT GAME straight over the coin line and the prompts, because
