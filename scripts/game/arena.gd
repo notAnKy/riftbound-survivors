@@ -8,7 +8,11 @@ const VIEW := Rect2(40, 120, 1840, 890)
 # scales the whole session down to fit. That is what buys room to move without
 # taking a pixel from the HUD -- everything simply renders a little smaller.
 # Must stay proportional to VIEW, or the two axes would not fit at one scale.
-const GROWTH := 1.12
+# Raised 1.12 -> 1.28 on play feedback: being surrounded with nowhere to run
+# was the complaint. The cost is real and unavoidable -- the session scales down
+# to fit, so every actor renders about 12% smaller. Room is bought in exactly
+# that currency, which is why this is not simply set higher again.
+const GROWTH := 1.28
 const BOUNDS := Rect2(VIEW.position, VIEW.size * GROWTH)
 const WALL_THICKNESS := 60.0
 

@@ -37,11 +37,13 @@ const LABELS := {
 	"harvesting": "Harvesting",
 	"attack_range": "Range",
 	"pickup_radius": "Pickup Range",
+	"knockback": "Knockback",
+	"slow": "Slow",
 }
 
 # Stats shown with a % sign in the UI.
 const PERCENT := ["lifesteal", "damage", "attack_speed", "crit_chance",
-	"crit_damage", "dodge", "speed", "luck", "attack_range"]
+	"crit_damage", "dodge", "speed", "luck", "attack_range", "slow"]
 
 var values: Dictionary = {}
 
@@ -82,6 +84,16 @@ func damage_taken(amount: float) -> float:
 # survivability multiplies with every other one.
 func regen_per_second() -> float:
 	return minf(maxf(get_stat("hp_regen"), 0.0), Balance.REGEN_CAP)
+
+# How hard a hit shoves an enemy. 0 with no investment, so nothing changes for
+# a build that never buys into it.
+func knockback_force() -> float:
+	return maxf(get_stat("knockback"), 0.0) * Balance.KNOCKBACK_PER_POINT
+
+# The factor an enemy's speed is multiplied by on being hit, so 1.0 is no slow.
+func slow_factor() -> float:
+	var pct := minf(maxf(get_stat("slow"), 0.0) * Balance.SLOW_PER_POINT, Balance.SLOW_MAX)
+	return 1.0 - pct / 100.0
 
 # Capped, or enough dodge would make a run unloseable.
 func dodges(rng: RandomNumberGenerator) -> bool:

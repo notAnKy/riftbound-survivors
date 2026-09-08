@@ -16,6 +16,10 @@ var crit := false
 var already_hit: Array[Node] = []
 var chase_target: Node2D = null
 var chase_strength := 0.0
+# Crowd control carried by the shot, set from the shooter's sheet. Both are
+# no-ops at their defaults, so a build that never buys into them is unchanged.
+var knock := 0.0
+var chill_factor := 1.0
 
 func launch(from: Vector2, direction: Vector2, shot_speed: float, shot_damage: float, shot_life: float, shot_color: Color, shot_pierce: int, is_hostile: bool, is_crit: bool = false) -> void:
 	position = from
@@ -34,6 +38,10 @@ func launch(from: Vector2, direction: Vector2, shot_speed: float, shot_damage: f
 # Homing shots keep steering toward whatever they were fired at. They do not
 # re-acquire: a dart that loses its target flies straight, which keeps a miss
 # possible and stops them feeling like guaranteed damage.
+func controls(push: float, factor: float) -> void:
+	knock = push
+	chill_factor = factor
+
 func chase(target: Node2D, strength: float) -> void:
 	chase_target = target
 	chase_strength = strength
@@ -58,6 +66,9 @@ func _on_body_entered(body: Node2D) -> void:
 		return
 	if body is Enemy and not already_hit.has(body):
 		already_hit.append(body)
+		# Shoved the way the shot was going, which is the direction that reads.
+		if knock > 0.0: body.push(velocity.normalized(), knock)
+		if chill_factor < 1.0: body.chill(chill_factor, Balance.SLOW_TIME)
 		body.take_damage(damage, crit)
 		dealt_damage.emit(damage)
 		if pierce > 0: pierce -= 1

@@ -20,6 +20,9 @@ var bullet_speed := 0.0
 var hit_flash := 0.0
 var wobble := 0.0
 var knockback := Vector2.ZERO
+# Chilled by a hit: a factor on speed and the time left of it.
+var slow_timer := 0.0
+var slow_factor := 1.0
 var is_elite := false
 var is_boss := false
 # Charger state machine: approach, wind up on the spot, dash, recover.
@@ -136,8 +139,13 @@ func _physics_process(delta: float) -> void:
 	var sprite := $Sprite as Sprite2D
 	# Bright enough to read as a hit, not so bright the silhouette is lost --
 	# a boss under sustained fire is in this state a good part of the time.
+	if slow_timer > 0.0:
+		slow_timer = maxf(0.0, slow_timer - delta)
+		if slow_timer <= 0.0: slow_factor = 1.0
 	if hit_flash > 0.0: sprite.modulate = tint * 1.75
 	elif charge_state == "windup": sprite.modulate = tint * 1.6
+	# A slowed enemy has to look slowed, or the stat is invisible.
+	elif slow_timer > 0.0: sprite.modulate = tint * Color(0.62, 0.80, 1.30)
 	else: sprite.modulate = tint
 	# Last frame's velocity is plenty: this is a hop, not a simulation.
 	anim.tick(sprite, delta, velocity.length() / maxf(speed, 1.0))
@@ -165,6 +173,9 @@ func _physics_process(delta: float) -> void:
 				wants_shot.emit(position, direction, contact_damage, bullet_speed)
 		_:
 			velocity = direction * speed
+	# Slow scales the steering only. Knockback is added after, so being shoved
+	# is not itself slowed down.
+	velocity *= slow_factor
 	# Knockback rides on top of the steering and bleeds off, so a nova throws
 	# the crowd outward without permanently changing where they are heading.
 	velocity += knockback
@@ -181,6 +192,14 @@ func _physics_process(delta: float) -> void:
 
 func push(direction: Vector2, force: float) -> void:
 	knockback = direction.normalized() * force
+
+# Strongest wins rather than stacking. A crowd taking twenty hits a second would
+# otherwise freeze solid, and an enemy that cannot reach you is the immortality
+# problem again in another costume.
+func chill(factor: float, duration: float) -> void:
+	if factor >= 1.0: return
+	slow_factor = minf(slow_factor, factor) if slow_timer > 0.0 else factor
+	slow_timer = maxf(slow_timer, duration)
 
 func take_damage(amount: float, crit: bool = false) -> void:
 	if not alive: return

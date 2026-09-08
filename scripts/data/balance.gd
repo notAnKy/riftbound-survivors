@@ -52,6 +52,27 @@ const SPAWN_INTERVAL_MIN := 0.22
 const SPAWN_BATCH_EVERY := 5
 # And a ceiling on that, for the same reason as the interval floor.
 const SPAWN_BATCH_MAX := 4
+# --- where the crowd comes from ----------------------------------------------
+#
+# Enemies used to pick a uniformly random edge on *every single spawn*, which
+# averages out to "surrounded, always" and gives the player nothing to read.
+# Instead a few gates are open at a time and they move: pressure with a
+# direction is pressure you can run from, and running from it is the play.
+# --- crowd control -----------------------------------------------------------
+#
+# Capping defence left the player with only one answer to a crowd: walk away
+# from it. These are the other two -- push it back, or slow it down -- and they
+# are what the defensive nerfs are balanced against.
+const KNOCKBACK_PER_POINT := 11.0
+const SLOW_PER_POINT := 1.1
+# Capped, and deliberately short of a freeze. An enemy that cannot reach you is
+# the same immortality problem wearing a different hat.
+const SLOW_MAX := 55.0
+const SLOW_TIME := 0.9
+
+const SPAWN_GATE_SECONDS := 7.0
+# How far either side of a gate an enemy can arrive, in radians.
+const SPAWN_GATE_SPREAD := 0.34
 
 # The spawner's shape, in one place: the report models a wave from these too,
 # and a second copy of the formula would drift from the real one.

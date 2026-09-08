@@ -41,6 +41,10 @@ var kills := 0
 var bosses_killed := 0
 # The boss currently on the field, for the HUD's bar. Read through boss_alive().
 var boss: Enemy = null
+# Directions the crowd is currently arriving from, and the clock that moves
+# them. See Balance.SPAWN_GATE_SECONDS for why this is not just a random edge.
+var spawn_gates: Array[float] = []
+var gate_timer := 0.0
 # Blasts whose fuse is still burning: {at, spec, timer}. A bloater's explosion
 # is deliberately not instant, so the damage has to outlive the enemy that
 # caused it and cannot simply ride the death signal any more.
@@ -372,6 +376,8 @@ func begin_round() -> void:
 	round_time_left = round_length
 	round_phase = "combat"
 	spawn_timer = 0.15
+	# A fresh set each wave, so a wave never inherits the last one's pressure.
+	pick_gates()
 	if round_number % 5 == 0:
 		var top := Vector2(Arena.BOUNDS.get_center().x, Arena.BOUNDS.position.y + 70.0)
 		boss = spawn_enemy(EnemyCatalog.boss(round_number), top, true)
@@ -586,6 +592,8 @@ func rebuild_stats(heal_gain: bool = false, who: Survivor = null) -> void:
 # --- combat ------------------------------------------------------------------
 
 func spawn_enemies(delta: float) -> void:
+	gate_timer -= delta
+	if gate_timer <= 0.0 or spawn_gates.is_empty(): pick_gates()
 	spawn_timer -= delta
 	if spawn_timer > 0.0: return
 	# Two players kill far faster than one, so the crowd arrives faster too.
@@ -597,17 +605,48 @@ func spawn_enemies(delta: float) -> void:
 		var def: Dictionary = options[rng.randi_range(0, options.size() - 1)]
 		spawn_enemy(def, spawn_point(), false, rng.randf() < elite_odds)
 
+# Which way the crowd comes from for the next few seconds. Shapes rather than
+# random directions: one side leans on you, opposite sides pincer you, and a
+# corner pair pushes you diagonally. Every one of them leaves somewhere to go,
+# which a uniformly random edge does not.
+func pick_gates() -> void:
+	gate_timer = Balance.SPAWN_GATE_SECONDS
+	var base := float(rng.randi_range(0, 7)) * TAU / 8.0
+	var fresh: Array[float] = []
+	match rng.randi_range(0, 3):
+		0: fresh.append(base)
+		1:
+			fresh.append(base)
+			fresh.append(base + PI)
+		2:
+			fresh.append(base)
+			fresh.append(base + TAU / 8.0)
+		_:
+			# A fan across one side rather than three points around the circle.
+			# Three spread gates put something in six of eight directions, which
+			# is the "surrounded" this exists to stop.
+			fresh.append(base - TAU / 8.0)
+			fresh.append(base)
+			fresh.append(base + TAU / 8.0)
+	spawn_gates = fresh
+
+# Where a ray leaving the centre at `angle` meets the band. The arena is a
+# rectangle, so whichever axis the ray reaches first is the edge it lands on.
+static func border_point(band: Rect2, angle: float) -> Vector2:
+	var dir := Vector2.RIGHT.rotated(angle)
+	var half := band.size * 0.5
+	var tx: float = INF if absf(dir.x) < 0.0001 else half.x / absf(dir.x)
+	var ty: float = INF if absf(dir.y) < 0.0001 else half.y / absf(dir.y)
+	return band.get_center() + dir * minf(tx, ty)
+
 # Enemies used to appear outside the arena and walk in. With real walls that
 # would trap them, so they arrive just inside the border, away from the player.
 func spawn_point() -> Vector2:
 	var band := Arena.BOUNDS.grow(-26.0)
+	if spawn_gates.is_empty(): pick_gates()
 	for attempt in range(8):
-		var p := Vector2.ZERO
-		match rng.randi_range(0, 3):
-			0: p = Vector2(rng.randf_range(band.position.x, band.end.x), band.position.y)
-			1: p = Vector2(band.end.x, rng.randf_range(band.position.y, band.end.y))
-			2: p = Vector2(rng.randf_range(band.position.x, band.end.x), band.end.y)
-			_: p = Vector2(band.position.x, rng.randf_range(band.position.y, band.end.y))
+		var gate: float = spawn_gates[rng.randi_range(0, spawn_gates.size() - 1)]
+		var p := border_point(band, gate + rng.randf_range(-Balance.SPAWN_GATE_SPREAD, Balance.SPAWN_GATE_SPREAD))
 		# Clear of everybody, not just seat 0: in co-op an enemy dropped on the
 		# other player's head is exactly as unfair.
 		var crowded := false
@@ -721,7 +760,9 @@ func swing_melee(who: Survivor, weapon: Weapon, target: Enemy, reach: float) -> 
 		if offset.length() > reach + enemy.radius: continue
 		if absf(facing.angle_to(offset)) > arc * 0.5: continue
 		var crit := stats.roll_crit(rng)
-		enemy.push(offset, knock)
+		# The weapon's own shove plus whatever the sheet adds to it.
+		enemy.push(offset, knock + stats.knockback_force())
+		enemy.chill(stats.slow_factor(), Balance.SLOW_TIME)
 		enemy.take_damage(damage * crit, crit > 1.0)
 	var swing: MeleeSwing = SWING_SCENE.instantiate()
 	swing.position = player.position
@@ -748,6 +789,7 @@ func tick_orbital(who: Survivor, weapon: Weapon, delta: float) -> void:
 		if enemy == null or not enemy.alive: continue
 		if enemy.position.distance_to(spot) > hit + enemy.radius: continue
 		var crit := stats.roll_crit(rng)
+		enemy.chill(stats.slow_factor(), Balance.SLOW_TIME)
 		enemy.take_damage(weapon.damage(stats) * crit, crit > 1.0)
 		struck = true
 	if struck:
@@ -781,6 +823,7 @@ func add_shot(who: Survivor, direction: Vector2, speed: float, life: float, dama
 	var shot: Projectile = SHOT_SCENE.instantiate()
 	shots.add_child(shot)
 	shot.launch(who.player.position, direction, speed, damage, life, color, pierce, false, is_crit)
+	shot.controls(who.stats.knockback_force(), who.stats.slow_factor())
 	# Bound to the seat that fired it, so lifesteal pays the player who shot
 	# rather than whoever happens to be seat 0.
 	shot.dealt_damage.connect(on_damage_dealt.bind(who))

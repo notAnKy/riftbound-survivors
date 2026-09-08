@@ -35,6 +35,7 @@ const STAT_ICON := {
 	"crit_chance": "honed_edge", "crit_damage": "honed_edge", "attack_range": "long_barrel",
 	"lifesteal": "leech_rune", "harvesting": "salvage_rig", "luck": "lucky_coin",
 	"dodge": "ghost_step", "hp_regen": "repair_field",
+	"knockback": "impact_core", "slow": "cryo_round",
 }
 
 # Items that borrow another item's glyph, for the same reason the stat grants

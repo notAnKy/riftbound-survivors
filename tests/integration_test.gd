@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 368
+const EXPECTED_CHECKS := 374
 var checks := 0
 
 func _initialize() -> void:
@@ -82,6 +82,8 @@ func bootstrap() -> void:
 	await test_between_wave_healing()
 	await test_level_up_selection()
 	await test_pointer_does_not_fight_the_arrows()
+	await test_spawn_gates_have_a_direction()
+	await test_crowd_control()
 	await test_controller()
 	await test_quit_confirmation()
 	await test_slider_sweeping()
@@ -1081,6 +1083,75 @@ func test_level_up_selection() -> void:
 	check("and its cards, buttons and slots are one list (%d rows)" % game.menu_items().size(),
 		game.menu_items().size() >= GameUI.SHOP_CARDS + 2)
 	check("laid out as the bands it is drawn in (%d)" % game.menu_groups().size(), game.menu_groups().size() == 3)
+	game.free()
+
+# Enemies used to pick a uniformly random edge on every single spawn, which
+# averages out to "surrounded, always" and gives the player nothing to read or
+# run from. A few gates are open at a time instead, and they move.
+func test_spawn_gates_have_a_direction() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	var centre := Arena.BOUNDS.get_center()
+	var worst := 0
+	for wave in range(6):
+		s.pick_gates()
+		var octants := {}
+		for i in range(90):
+			var at: Vector2 = s.spawn_point()
+			octants[int(wrapf((at - centre).angle(), 0.0, TAU) / (TAU / 8.0))] = true
+		worst = maxi(worst, octants.size())
+	check("a wave's crowd arrives from a direction, not everywhere (%d of 8 octants)" % worst,
+		worst <= 5)
+	# Whatever the gates are, an enemy still has to arrive inside the walls.
+	var outside := 0
+	for i in range(120):
+		if not Arena.BOUNDS.has_point(s.spawn_point()): outside += 1
+	check("and always inside the arena (%d outside)" % outside, outside == 0)
+	game.free()
+
+# Capping defence left walking away as the only answer to a crowd. These are the
+# other two, and they are what the defensive nerfs are balanced against.
+func test_crowd_control() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	var control := Stats.new()
+	check("no investment means no crowd control (%.0f, %.2f)" % [control.knockback_force(), control.slow_factor()],
+		is_zero_approx(control.knockback_force()) and is_equal_approx(control.slow_factor(), 1.0))
+	control.add("slow", 999.0)
+	check("slow is capped short of a freeze (%.2f)" % control.slow_factor(),
+		control.slow_factor() > 0.0 and is_equal_approx(control.slow_factor(), 1.0 - Balance.SLOW_MAX / 100.0))
+
+	# Two identical enemies the same distance out, one chilled. The slowed one
+	# has to cover measurably less ground.
+	clear_field(s)
+	var husk := EnemyCatalog.get_enemy("husk")
+	var quick: Enemy = s.spawn_enemy(husk, s.player.position + Vector2(0, -420), false)
+	var slowed: Enemy = s.spawn_enemy(husk, s.player.position + Vector2(0, 420), false)
+	quick.max_hp = 1000000.0
+	quick.hp = quick.max_hp
+	slowed.max_hp = 1000000.0
+	slowed.hp = slowed.max_hp
+	await step(1)
+	var quick_from: Vector2 = quick.position
+	var slow_from: Vector2 = slowed.position
+	slowed.chill(0.4, 5.0)
+	await step(12)
+	var quick_moved: float = quick.position.distance_to(quick_from)
+	var slow_moved: float = slowed.position.distance_to(slow_from)
+	check("a chilled enemy covers less ground (%.0f vs %.0fpx)" % [slow_moved, quick_moved],
+		slow_moved < quick_moved * 0.75)
+
+	# And a shove moves one away from where it was heading.
+	var target: Vector2 = s.player.position
+	var shoved: Enemy = s.spawn_enemy(husk, target + Vector2(0, -300), false)
+	shoved.max_hp = 1000000.0
+	shoved.hp = shoved.max_hp
+	await step(1)
+	var near: float = shoved.position.distance_to(target)
+	shoved.push(Vector2.UP, 900.0)
+	await step(4)
+	check("and a shove pushes one back out (%.0f -> %.0fpx)" % [near, shoved.position.distance_to(target)],
+		shoved.position.distance_to(target) > near)
 	game.free()
 
 # A mouse left sitting on a card must not fight the arrow keys. The shop and

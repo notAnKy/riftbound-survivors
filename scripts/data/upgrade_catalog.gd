@@ -17,6 +17,8 @@ static func _definitions() -> Array[Dictionary]:
 		{"title":"RUNE HASTE", "stats":{"attack_speed":8.0}, "rarity":"COMMON"},
 		{"title":"NECRO PLATING", "stats":{"max_hp":12.0}, "rarity":"COMMON"},
 		{"title":"SCRAP WEAVE", "stats":{"armor":2.0}, "rarity":"COMMON"},
+		{"title":"CONCUSSION", "stats":{"knockback":4.0}, "rarity":"COMMON"},
+		{"title":"FROST EDGE", "stats":{"slow":6.0}, "rarity":"RARE"},
 		{"title":"SOUL MAGNET", "stats":{"pickup_radius":28.0}, "rarity":"COMMON"},
 		{"title":"KNIT FLESH", "stats":{"hp_regen":0.25}, "rarity":"COMMON"},
 		{"title":"PHASE TREADS", "stats":{"speed":9.0}, "rarity":"RARE"},
