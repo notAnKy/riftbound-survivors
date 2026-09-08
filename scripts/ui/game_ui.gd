@@ -89,6 +89,7 @@ func _draw() -> void:
 	elif game.state == "lobby": draw_lobby()
 	elif game.state == "armory": draw_armory()
 	elif game.state == "awards": draw_awards()
+	elif game.state == "controls": draw_controls()
 	elif game.state == "settings": draw_settings("SETTINGS", "ESC: back to title")
 	else:
 		# These three are full screens with their own headers and panels, so the
@@ -673,20 +674,13 @@ func draw_menu_button(rect: Rect2, label: String, action: String, color: Color, 
 func draw_hud() -> void:
 	var s := game.session
 	var right := SCREEN.x - MARGIN
-	text_at(Vector2(MARGIN, 48), "RIFTBOUND SURVIVORS", 26, Color("e8efff"))
+	# Deliberately sparse. The title belongs on the title screen, and the strip
+	# of weapon chips that used to run across the top said nothing the rack
+	# orbiting the player does not already say -- it was six coloured boxes of
+	# text between the player and the thing they have to watch.
 	if not game.coop:
-		text_at(Vector2(MARGIN, 84), "MATERIALS  %d" % s.materials, 20, Color("8cffd1"))
-	# Weapon rack, so the effect of a shop purchase is visible in the fight. In
-	# co-op it is dropped: two racks across the top is unreadable, and each
-	# player can already see their own weapons orbiting them.
-	var x := MARGIN + 300.0
-	for weapon in (s.weapons if not game.coop else ([] as Array[Weapon])):
-		var label: String = weapon.display_name()
-		var width := text_width(label, 14) + 42.0
-		draw_panel(Rect2(x, 62, width, 30), Color(0.09,0.13,0.24,0.85), weapon.def().color, 1.0)
-		Icons.weapon(self, weapon.id, Vector2(x + 15, 77), 11.0, weapon.def().color)
-		text_at(Vector2(x + 30, 84), label, 14, weapon.def().color)
-		x += width + 9.0
+		text_at(Vector2(MARGIN, 56), "%d" % s.materials, 26, Color("8cffd1"))
+		text_at(Vector2(MARGIN + text_width("%d" % s.materials, 26) + 10.0, 56), "MATERIALS", 14, Color("4f7d6d"))
 	var round_status := "CLEAR HOSTILES" if s.round_phase == "cleanup" else ("SHOP" if s.round_phase == "shop" else "FIGHT")
 	heading_right(right, 50, "WAVE %d / %d  %02d" % [s.round_number, Balance.FINAL_WAVE, int(ceil(s.round_time_left))], 28, Color("ffd166"))
 	text_right(right, 80, "%s  •  KILLS %d" % [round_status, s.kills], 16, Color("ffcf77") if s.round_phase != "combat" else Color("b6c6e8"))
@@ -1063,10 +1057,43 @@ func draw_settings(title: String, footer: String) -> void:
 	for i in range(rows.size()):
 		if rows[i].has("level"): draw_slider_row(i, rows[i])
 		else: draw_toggle_row(settings_row_rect(i), rows[i])
-	draw_menu_button(settings_row_rect(rows.size()), "BACK", "back", Color("aabce1"))
-	draw_hint_row(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 62,
+	draw_menu_button(settings_row_rect(rows.size()), "CONTROLS", "controls", Color("82b7ff"))
+	draw_menu_button(settings_row_rect(rows.size() + 1), "BACK", "back", Color("aabce1"))
+	var last := settings_row_rect(rows.size() + 1)
+	draw_hint_row(SCREEN.x * 0.5, last.end.y + 62,
 		[["nav", "ARROWS", "PICK / ADJUST"], ["confirm", "ENTER", "TOGGLE"], ["back", "ESC", "BACK"]])
-	if not on_pad(): text_centered(SCREEN.x * 0.5, settings_row_rect(rows.size()).end.y + 110, "or drag a bar with the mouse  •  %s" % footer, 15, Color("8ea4cb"))
+	if not on_pad(): text_centered(SCREEN.x * 0.5, last.end.y + 106, "or drag a bar with the mouse  •  %s" % footer, 15, Color("8ea4cb"))
+
+# Every binding, both devices side by side. The pad column comes from asking
+# pad_verb about each button rather than from a second list, so it cannot claim
+# a binding the game does not actually have.
+func draw_controls() -> void:
+	fill_screen(Color("0b1020"))
+	heading(SCREEN.x * 0.5, 132, "CONTROLS", 40, Color("eaf1ff"))
+	var rows: Array = game.CONTROL_ROWS
+	var width := 1180.0
+	var left := (SCREEN.x - width) * 0.5
+	var top := 196.0
+	var row_h := 52.0
+	var key_x := left + 520.0
+	var pad_x := left + 852.0
+	text_at(Vector2(left + 24.0, top - 14.0), "ACTION", 15, Color("7f8db0"))
+	text_at(Vector2(key_x, top - 14.0), "KEYBOARD / MOUSE", 15, Color("7f8db0"))
+	text_at(Vector2(pad_x, top - 14.0), "GAMEPAD  (%s)" % Gamepad.brand().to_upper(), 15, Color("7f8db0"))
+	for i in range(rows.size()):
+		var row: Dictionary = rows[i]
+		var box := Rect2(Vector2(left, top + float(i) * row_h), Vector2(width, row_h - 6.0))
+		# Banded, because eleven rows of three columns is a table and a table
+		# without banding is where the eye loses its place.
+		if i % 2 == 0: draw_rect(box, Color(0.09, 0.12, 0.22, 0.75))
+		text_at(Vector2(box.position.x + 24.0, box.get_center().y + 6.0), String(row.label), 19, Color("e8efff"))
+		text_at(Vector2(key_x, box.get_center().y + 6.0), String(row.key), 18, Color("9fd8ff"))
+		var pad: String = String(row.pad) if row.has("pad") else game.pad_button_for(String(row.verb))
+		text_at(Vector2(pad_x, box.get_center().y + 6.0), pad if pad != "" else "—", 18, Color("ffd8a8"))
+	var after := top + float(rows.size()) * row_h + 30.0
+	draw_menu_button(Rect2(Vector2((SCREEN.x - 300.0) * 0.5, after), BUTTON_SIZE), "BACK", "back", Color("aabce1"))
+	draw_hint_row(SCREEN.x * 0.5, after + BUTTON_SIZE.y + 52.0,
+		[["back", "ESC", "BACK"], ["confirm", "ENTER", "BACK"]])
 
 func draw_slider_row(index: int, row: Dictionary) -> void:
 	var rect := settings_row_rect(index)

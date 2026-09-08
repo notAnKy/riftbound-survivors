@@ -58,6 +58,12 @@ func capture() -> void:
 	game.state = "awards"
 	await settle(3)
 	await shoot("18_achievements")
+
+	# Reachable off the title with no run behind it, like the lobby -- worth
+	# capturing for the same reason.
+	game.state = "controls"
+	await settle(3)
+	await shoot("19_controls")
 	game.state = "title"
 
 	# The co-op lobby, drawn on a cold boot: this is what CO-OP off the title

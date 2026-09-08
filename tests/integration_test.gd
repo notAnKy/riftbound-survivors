@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 374
+const EXPECTED_CHECKS := 376
 var checks := 0
 
 func _initialize() -> void:
@@ -1385,14 +1385,31 @@ func test_pinning_an_offer() -> void:
 	check("a pinned offer survives every reroll (%d changes in 6)" % changed, changed == 0)
 	check("while the others are replaced", not board.offers[0].is_empty())
 
-	# and it is reachable without a mouse
-	check("pinning is in the navigable list", game.menu_items().has("lock_1"))
+	# The chip is clickable but deliberately NOT on the cursor's path: a pad
+	# pins with Square from anywhere on the card, so stopping the cursor on a
+	# tiny chip between every two cards is a step that buys nothing.
+	check("the pin chip is off the cursor's path", not game.menu_items().has("lock_1"))
+	check("but the mouse can still hit it",
+		game.ui.menu_action_at(game.ui.card_lock_rect(1).get_center()) == "lock_1")
 	# A pad should not have to walk the cursor onto the chip: Square pins
 	# whatever offer the cursor is on, from the card or from the chip itself.
 	game.set_cursor(0, game.menu_items().find("buy_3"))
 	check("the cursor on a card knows which offer it is on", game.focused_offer(0) == 3)
 	pad_press(game, Gamepad.SQUARE)
 	check("square pins the offer under the cursor", board.is_locked(3))
+	# Walking the cards must not stop anywhere between them.
+	var stops: Array = []
+	game.set_cursor(0, 0)
+	for step_i in range(4):
+		stops.append(game.focused_action())
+		game.handle_verb("nav_right")
+	var only_cards := true
+	for at in stops:
+		if not String(at).begins_with("buy_"): only_cards = false
+	check("and walking the row visits only cards (%s)" % str(stops), only_cards)
+	# Put it back where the next assertion expects it -- walking the row above
+	# deliberately moved the cursor.
+	game.set_cursor(0, game.menu_items().find("buy_3"))
 	pad_press(game, Gamepad.SQUARE)
 	check("and unpins it again", not board.is_locked(3))
 	# Triangle rerolls, so it is not buried behind the cursor either.

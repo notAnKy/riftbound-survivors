@@ -6,7 +6,7 @@ extends Node2D
 
 # Screens whose rows can be clicked.
 const MOUSE_STATES := ["title", "armory", "shop", "settings", "settings_pause",
-	"paused", "level_up", "confirm_quit", "lobby"]
+	"paused", "level_up", "confirm_quit", "lobby", "controls"]
 # Settings rows that hold a value rather than a yes/no, so left and right
 # adjust them instead of activating them.
 const SLIDER_ROWS := ["sfx", "music"]
@@ -227,7 +227,7 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 	var items: Array[String] = []
 	match state:
 		"title": items.assign(["play", "coop", "armory", "awards", "settings", "quit"])
-		"settings", "settings_pause": items.assign(["sfx", "music", "rift", "fullscreen", "back"])
+		"settings", "settings_pause": items.assign(["sfx", "music", "rift", "fullscreen", "controls", "back"])
 		"paused": items.assign(["resume", "settings", "menu"])
 		"confirm_quit": items.assign(["quit_run", "keep_playing"])
 		"level_up":
@@ -248,8 +248,10 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 				# already bought -- and the pin beside it was reachable too.
 				if offer_empty(who.shop, i) and not who.shop.is_locked(i): continue
 				items.append("buy_%d" % i)
-				# The pin sits inside its own card, so it belongs beside it.
-				items.append("lock_%d" % i)
+				# The pin chip is deliberately *not* in this list. It is still
+				# clickable -- menu_action_at hit-tests it directly -- but a pad
+				# already pins with `alt` from anywhere on the card, so stopping
+				# the cursor on a tiny chip on the way past buys nothing.
 			items.append("reroll")
 			items.append("go")
 			for i in range(who.weapons.size()):
@@ -463,6 +465,14 @@ func open_settings() -> void:
 func leave_settings() -> void:
 	state = "paused" if state == "settings_pause" else "title"
 
+# Which settings screen opened the controls list, so backing out of it returns
+# where it came from rather than always to the title.
+var controls_from := "settings"
+
+func open_controls() -> void:
+	controls_from = state
+	state = "controls"
+
 # Both seats have to press NEXT WAVE, or one player would drag the other out of
 # the shop mid-purchase. The button reads READY for whoever has already pressed.
 func leave_shop(at_seat: int = 0) -> void:
@@ -500,6 +510,7 @@ func handle_menu_action(action: String, at_seat: int = 0) -> void:
 		"coop": open_lobby()
 		"armory": state = "armory"
 		"awards": state = "awards"
+		"controls": open_controls()
 		"settings": open_settings()
 		"sfx", "music": set_slider(action, 0.0 if slider_value(action) > 0.0 else 0.7)
 		"rift": toggle_rift_effects()
@@ -650,6 +661,33 @@ func pad_verb(button: int) -> String:
 	if button == JOY_BUTTON_DPAD_RIGHT: return "nav_right"
 	return ""
 
+# The controls screen, as data. The keyboard column is written here because the
+# same verb genuinely differs per screen -- `alt` is Q in a fight and L in the
+# shop -- which is the whole reason verbs exist. The pad column is *derived* by
+# asking pad_verb about every button, so a binding can never be shown here and
+# not be true. Rows with an empty verb are the ones that are not verbs at all.
+const CONTROL_ROWS := [
+	{"label": "Move", "verb": "", "key": "W A S D  /  Arrows", "pad": "Left Stick  /  D-Pad"},
+	{"label": "Select, buy, take", "verb": "confirm", "key": "Enter  /  Click"},
+	{"label": "Back, cancel", "verb": "back", "key": "Esc"},
+	{"label": "Pause the run", "verb": "pause", "key": "Esc"},
+	{"label": "Dash", "verb": "alt", "key": "Q"},
+	{"label": "Rift nova", "verb": "special", "key": "E"},
+	{"label": "Pin an offer (shop)", "verb": "alt", "key": "L"},
+	{"label": "Reroll the shop", "verb": "special", "key": "R"},
+	{"label": "Leave the shop", "verb": "ready", "key": "Space"},
+	{"label": "Buy slot 1-4 (shop)", "verb": "", "key": "1  2  3  4", "pad": "—"},
+	{"label": "Fullscreen", "verb": "", "key": "F11  /  Alt+Enter", "pad": "—"},
+]
+
+# Every pad button, asked what it means. Returns "" for a verb nothing is bound
+# to, which is what keeps the controls screen honest.
+func pad_button_for(verb: String) -> String:
+	if verb == "": return ""
+	for button in range(JOY_BUTTON_MAX):
+		if pad_verb(button) == verb: return Gamepad.glyph(button).to_upper()
+	return ""
+
 # Which device the prompts should name. Tracked in _input rather than
 # _unhandled_input, because a click a menu consumes still says the player has a
 # hand on the mouse.
@@ -786,6 +824,9 @@ func handle_verb(verb: String, at_seat: int = 0) -> bool:
 			"game_over", "victory", "awards":
 				state = "title"
 				return true
+			"controls":
+				state = controls_from
+				return true
 			# The shop and the level-up screen are each a decision the player
 			# has to actually make. There is nowhere to back out to.
 			"shop", "level_up":
@@ -794,6 +835,9 @@ func handle_verb(verb: String, at_seat: int = 0) -> bool:
 		match state:
 			"awards":
 				state = "title"
+				return true
+			"controls":
+				state = controls_from
 				return true
 			"game_over":
 				start_run(coop)
@@ -851,6 +895,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif key.keycode == KEY_Q: handle_menu_action("quit")
 	elif state == "awards":
 		if key.keycode == KEY_B: state = "title"
+	elif state == "controls":
+		if key.keycode == KEY_B: state = controls_from
 	elif state == "armory":
 		if key.keycode >= KEY_1 and key.keycode <= KEY_3: selected_gun = key.keycode - KEY_1
 		elif key.keycode == KEY_C: cycle_character(1)
