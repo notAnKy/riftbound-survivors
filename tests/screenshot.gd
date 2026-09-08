@@ -71,11 +71,11 @@ func capture() -> void:
 	game.profile.data.unlocked_characters = [0, 1, 2, 3]
 	game.profile.data.unlocked_guns = [0, 1, 2]
 	game.handle_menu_action("coop")
-	game.lobby.tick_join(0, Lobby.HOLD_TIME * 0.55, true)
+	game.lobby.tick_join("kb", Lobby.HOLD_TIME * 0.55, true)
 	await settle(3)
 	await shoot("15_lobby_join")
-	game.lobby.tick_join(0, Lobby.HOLD_TIME, true)
-	game.lobby.tick_join(1, Lobby.HOLD_TIME, true)
+	game.lobby.tick_join("kb", Lobby.HOLD_TIME, true)
+	game.lobby.tick_join("pad0", Lobby.HOLD_TIME, true)
 	game.lobby.character[1] = 2
 	await settle(3)
 	await shoot("16_lobby_characters")

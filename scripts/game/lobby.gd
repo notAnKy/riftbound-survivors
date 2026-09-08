@@ -127,8 +127,18 @@ func claim(device: String) -> int:
 # Progress for a seat nobody has taken yet. Holds belong to *devices* now, and a
 # device has no seat until its hold finishes, so an empty seat shows whichever
 # unclaimed device is furthest along -- which is the one about to fill it.
+# The seat the next join will land in, since claim() always takes the lowest
+# free one. -1 when the lobby is full.
+func next_seat() -> int:
+	for i in range(SEATS):
+		if String(seat_device[i]) == "": return i
+	return -1
+
 func hold_ratio(seat: int) -> float:
 	if bool(joined[seat]): return 1.0
+	# Only the seat about to be filled shows progress. Holds belong to devices,
+	# so without this one person's thumb filled the bar on every empty seat.
+	if seat != next_seat(): return 0.0
 	var best := 0.0
 	for device in device_hold:
 		if seat_of(String(device)) >= 0: continue

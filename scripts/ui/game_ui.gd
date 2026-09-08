@@ -475,8 +475,11 @@ func draw_lobby_pane(at_seat: int) -> void:
 	var box := Rect2(pane.position.x + 56.0, LOBBY_BOX_TOP, pane.size.x - 112.0, LOBBY_BOX_HEIGHT)
 	draw_panel(box, Color(0.07, 0.10, 0.19, 0.92) if joined else Color(0.04, 0.06, 0.12, 0.7),
 		accent if joined else Color("2b3550"), 3.0 if joined else 1.5)
+	# Whatever actually took this seat, not what used to be assumed to.
+	var device := String(lobby.seat_device[at_seat])
+	var who := Controls.label(device) if joined else ("PRESS TO CLAIM" if at_seat == lobby.next_seat() else "WAITING")
 	text_centered(box.get_center().x, box.position.y + 42.0,
-		"PLAYER %d   —   %s" % [at_seat + 1, "KEYBOARD" if at_seat == 0 else "CONTROLLER"],
+		"PLAYER %d   —   %s" % [at_seat + 1, who],
 		18, accent if joined else Color("54617d"))
 	if not joined:
 		draw_lobby_join(at_seat, box, accent)
@@ -496,11 +499,16 @@ func draw_lobby_pane(at_seat: int) -> void:
 # is the keyboard and seat 1 is the pad, always.
 func draw_lobby_join(at_seat: int, box: Rect2, accent: Color) -> void:
 	var centre := box.get_center()
-	text_centered(centre.x, centre.y - 58.0, "HOLD TO JOIN", 26, Color("d6e2fa"))
-	if at_seat == 0:
-		draw_key_cap(Rect2(centre.x - 46.0, centre.y - 32.0, 92.0, 34.0), "SPACE")
-	else:
-		draw_pad_badge(Vector2(centre.x, centre.y - 15.0), Gamepad.glyph(Gamepad.CROSS))
+	var next_up: bool = at_seat == game.lobby.next_seat()
+	text_centered(centre.x, centre.y - 58.0, "HOLD TO JOIN" if next_up else "WAITING FOR A PLAYER",
+		26, Color("d6e2fa") if next_up else Color("54617d"))
+	if not next_up: return
+	# Either device can take either seat now, so both are offered on whichever
+	# seat is next. Showing only one was the screen telling the player a rule
+	# that had stopped being true.
+	draw_key_cap(Rect2(centre.x - 118.0, centre.y - 32.0, 92.0, 34.0), "SPACE")
+	text_centered(centre.x, centre.y - 8.0, "or", 16, Color("7f8db0"))
+	draw_pad_badge(Vector2(centre.x + 76.0, centre.y - 15.0), Gamepad.glyph(Gamepad.CROSS))
 	var bar := Rect2(centre.x - 170.0, centre.y + 34.0, 340.0, 14.0)
 	draw_rect(bar, Color("101a30"), true)
 	var filled := game.lobby.hold_ratio(at_seat)
@@ -511,17 +519,20 @@ func draw_lobby_join(at_seat: int, box: Rect2, accent: Color) -> void:
 func draw_lobby_character(at_seat: int, box: Rect2) -> void:
 	var def := CharacterCatalog.get_character(int(game.lobby.character[at_seat]))
 	var centre := box.get_center().x
-	draw_character_art(Vector2(centre, box.position.y + 52.0), def, 96.0)
-	heading(centre, box.position.y + 116.0, String(def.name), 34, def.color)
-	text_centered(centre, box.position.y + 154.0, String(def.description), 17, Color("d1dcf5"))
-	text_centered(centre, box.position.y + 190.0, "HP %d   •   SPEED %d" % [int(def.hp), int(def.speed)],
+	# Below the seat label, not through it. The art used to start at +52 with
+	# the "PLAYER 1 - KEYBOARD" line at +42, so the slime sat on the words --
+	# invisible until the label became something worth reading.
+	draw_character_art(Vector2(centre, box.position.y + 104.0), def, 96.0)
+	heading(centre, box.position.y + 172.0, String(def.name), 34, def.color)
+	text_centered(centre, box.position.y + 210.0, String(def.description), 17, Color("d1dcf5"))
+	text_centered(centre, box.position.y + 246.0, "HP %d   •   SPEED %d" % [int(def.hp), int(def.speed)],
 		16, Color("9fb3d9"))
 	var kinds: Array = def.get("kinds", [])
 	var shape := "%d weapon slots" % int(def.get("slots", 6))
 	if not kinds.is_empty(): shape += "   •   %s weapons only" % String(kinds[0]).to_upper()
-	text_centered(centre, box.position.y + 224.0, shape, 15, Color("ffcf77"))
+	text_centered(centre, box.position.y + 280.0, shape, 15, Color("ffcf77"))
 	var perks := ItemCatalog.describe(def)
-	draw_wrapped(Vector2(box.position.x + 44.0, box.position.y + 268.0),
+	draw_wrapped(Vector2(box.position.x + 44.0, box.position.y + 322.0),
 		perks if perks != "" else "No stat modifiers", 16, Color("a9bbde"), box.size.x - 88.0)
 
 # Held for the life of the UI, and not merely as an optimisation.

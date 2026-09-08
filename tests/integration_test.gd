@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 386
+const EXPECTED_CHECKS := 388
 var checks := 0
 
 func _initialize() -> void:
@@ -1628,6 +1628,18 @@ func test_lobby_seats_follow_join_order() -> void:
 	# And each pad reads its own actions, or one would steer both.
 	check("each pad has its own movement actions",
 		Controls.actions_for("pad0") != Controls.actions_for("pad1"))
+	# The lobby said "PLAYER 1 - KEYBOARD" whatever had actually joined, which
+	# is a lie the moment a pad takes seat 0. It names the real device now.
+	check("a device names itself (%s / %s / %s)"
+		% [Controls.label("kb"), Controls.label("pad0"), Controls.label("pad1")],
+		Controls.label("kb") == "KEYBOARD" and Controls.label("pad0") == "CONTROLLER 1"
+		and Controls.label("pad1") == "CONTROLLER 2")
+	# And one thumb must not fill the bar on both empty seats at once.
+	game.lobby.reset([0], [0])
+	game.lobby.tick_join("pad0", Lobby.HOLD_TIME * 0.5, true)
+	check("only the seat about to be filled shows progress (%.2f / %.2f)"
+		% [game.lobby.hold_ratio(0), game.lobby.hold_ratio(1)],
+		game.lobby.hold_ratio(0) > 0.0 and is_zero_approx(game.lobby.hold_ratio(1)))
 	game.free()
 
 func coop_game() -> Node:

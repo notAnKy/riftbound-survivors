@@ -78,8 +78,12 @@ var input_device := "keyboard":
 		if value == "pad": menu_hover = ""
 # Stick menu navigation, latched so one flick moves one row while a held stick
 # scrolls at a steady rate.
-var stick_held := Vector2.ZERO
-var stick_repeat := 0.0
+# Per pad, not per game. Polling only joypad 0 meant a second controller could
+# not steer a menu at all, and a single pad that Windows enumerated as index 1
+# could not either -- which is what "sometimes it works, sometimes it does not"
+# was made of.
+var stick_held: Dictionary = {}
+var stick_repeat: Dictionary = {}
 # The volume row currently being dragged with the mouse, so a bar can be swept
 # rather than only clicked at a point.
 var dragging := ""
@@ -754,30 +758,38 @@ func _input(event: InputEvent) -> void:
 # push would scroll the whole list inside one frame, and clamped to one axis at
 # a time, or a diagonal would move the cursor twice.
 func poll_stick(delta: float) -> void:
-	if not Gamepad.connected(): return
 	if not (state in LIST_STATES or state in ROW_STATES or state == "armory"):
-		stick_held = Vector2.ZERO
+		stick_held.clear()
 		return
-	var axis := Vector2(Input.get_joy_axis(0, JOY_AXIS_LEFT_X), Input.get_joy_axis(0, JOY_AXIS_LEFT_Y))
+	# Every pad plugged in, each steering its own seat. Which seat that is comes
+	# from seat_for, so in co-op the two sticks cannot drive the same cursor.
+	for index in Input.get_connected_joypads():
+		if index >= Controls.MAX_PADS: continue
+		poll_one_stick(index, delta)
+
+func poll_one_stick(index: int, delta: float) -> void:
+	var axis := Vector2(Input.get_joy_axis(index, JOY_AXIS_LEFT_X), Input.get_joy_axis(index, JOY_AXIS_LEFT_Y))
 	var pushed := Vector2.ZERO
 	if absf(axis.x) >= Gamepad.MENU_DEADZONE and absf(axis.x) >= absf(axis.y): pushed.x = signf(axis.x)
 	elif absf(axis.y) >= Gamepad.MENU_DEADZONE: pushed.y = signf(axis.y)
 	if pushed == Vector2.ZERO:
-		stick_held = Vector2.ZERO
+		stick_held[index] = Vector2.ZERO
 		return
-	stick_repeat -= delta
-	if pushed != stick_held:
-		stick_held = pushed
-		stick_repeat = Gamepad.REPEAT_FIRST
-	elif stick_repeat > 0.0:
+	var was: Vector2 = stick_held.get(index, Vector2.ZERO)
+	stick_repeat[index] = float(stick_repeat.get(index, 0.0)) - delta
+	if pushed != was:
+		stick_held[index] = pushed
+		stick_repeat[index] = Gamepad.REPEAT_FIRST
+	elif float(stick_repeat[index]) > 0.0:
 		return
 	else:
-		stick_repeat = Gamepad.REPEAT_NEXT
+		stick_repeat[index] = Gamepad.REPEAT_NEXT
 	input_device = "pad"
-	if pushed.y < 0.0: handle_verb("nav_up")
-	elif pushed.y > 0.0: handle_verb("nav_down")
-	elif pushed.x < 0.0: handle_verb("nav_left")
-	else: handle_verb("nav_right")
+	var seat := seat_for("pad%d" % index)
+	if pushed.y < 0.0: handle_verb("nav_up", seat)
+	elif pushed.y > 0.0: handle_verb("nav_down", seat)
+	elif pushed.x < 0.0: handle_verb("nav_left", seat)
+	else: handle_verb("nav_right", seat)
 
 # Everything the two devices share. Returns whether the verb was consumed, so a
 # screen's own letter shortcuts only ever see what is left over.

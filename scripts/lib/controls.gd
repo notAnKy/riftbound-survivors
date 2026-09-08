@@ -101,6 +101,14 @@ static func join_held(device: String) -> bool:
 		return Input.is_joy_button_pressed(pad_index(device), Gamepad.CROSS)
 	return Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_ENTER)
 
+# What to call a device on screen. Seats no longer imply a device, so the lobby
+# has to say which one actually took each one.
+static func label(device: String) -> String:
+	if device == "kb": return "KEYBOARD"
+	var index := pad_index(device)
+	if index >= 0: return "CONTROLLER %d" % (index + 1)
+	return "OPEN"
+
 # The four action names a seat should read, by the device it was given.
 static func actions_for(device: String) -> Array:
 	if device == "kb": return KEYBOARD
