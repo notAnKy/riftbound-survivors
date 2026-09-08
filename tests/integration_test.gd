@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 394
+const EXPECTED_CHECKS := 397
 var checks := 0
 
 func _initialize() -> void:
@@ -1153,6 +1153,16 @@ func test_everything_drawn_is_clickable() -> void:
 	# And the rows that already worked still do.
 	click(game, game.ui.danger_rect(0).get_center())
 	check("the danger chips still answer (%d)" % game.danger, game.danger == 0)
+
+	# Clickable and silent is worse than not clickable: the screen reads as
+	# inert right up until something happens under the pointer.
+	game.sync_hover(game.ui.gun_rect(1).get_center())
+	check("hovering a weapon card lights it (%s)" % game.menu_hover, game.ui.is_focused("gun_1"))
+	game.sync_hover(game.ui.character_panel_rect().get_center())
+	check("and so does the survivor panel", game.ui.is_focused("character"))
+	game.sync_hover(Vector2(5, 5))
+	check("moving off the rows clears it",
+		not game.ui.is_focused("gun_1") and not game.ui.is_focused("character"))
 	game.free()
 
 # Enemies used to pick a uniformly random edge on every single spawn, which

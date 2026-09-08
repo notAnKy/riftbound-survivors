@@ -615,16 +615,24 @@ func draw_armory() -> void:
 	for i in range(guns.size()):
 		var box := gun_rect(i)
 		var selected := i == game.selected_gun
-		draw_panel(box, Color("263452") if selected else Color("151d35"), guns[i].color, 4.0 if selected else 2.0)
+		# The armory became clickable and said nothing about what the pointer was
+		# over, which is worse than not being clickable: the screen looks inert
+		# right up until something happens. Same ring as everywhere else.
+		if is_focused("gun_%d" % i): draw_focus_ring(box, Color("ffe9a8"))
+		draw_panel(box, Color("2f3f63") if is_focused("gun_%d" % i) else (Color("263452") if selected else Color("151d35")),
+			guns[i].color, 4.0 if selected else 2.0)
 		text_at(box.position + Vector2(26,52), "%d  %s" % [i+1, guns[i].name], 20, guns[i].color)
 		text_at(box.position + Vector2(26,96), guns[i].description, 16, Color("d1dcf5"))
 		var unlocked := game.profile.is_gun_unlocked(i)
 		text_at(box.position + Vector2(26,158), "EQUIPPED" if selected and unlocked else ("UNLOCK  %d COINS" % guns[i].cost if not unlocked else "Press %d" % (i+1)), 16, Color("ffcf77"))
 	var character := CharacterCatalog.get_character(game.selected_character)
 	var panel := character_panel_rect()
-	draw_panel(panel, Color("182441"), character.color)
+	if is_focused("character"): draw_focus_ring(panel, Color("ffe9a8"))
+	draw_panel(panel, Color("22314f") if is_focused("character") else Color("182441"), character.color)
 	draw_character_art(Vector2(panel.position.x + 78.0, panel.get_center().y), character, 104.0)
 	text_at(panel.position + Vector2(150, 52), "C  %s" % character.name, 24, character.color)
+	if is_focused("character"):
+		text_right(panel.end.x - 40.0, panel.position.y + 52.0, "CLICK FOR NEXT", 14, Color("ffe9a8"))
 	text_at(panel.position + Vector2(150, 90), "%s  •  HP %d  •  SPEED %d" % [character.description, character.hp, character.speed], 17, Color("d1dcf5"))
 	var perks := ItemCatalog.describe(character)
 	var kinds: Array = character.get("kinds", [])
@@ -643,7 +651,10 @@ func draw_armory() -> void:
 		var unlocked := i <= game.profile.max_danger()
 		var picked := i == game.danger
 		var accent := Color("ffcf77").lerp(Color("ff718b"), float(i) / float(Balance.DANGER_LEVELS - 1))
-		draw_panel(chip, Color("263452") if picked else Color("141c31"), accent if unlocked else Color("2b3550"), 3.0 if picked else 1.5)
+		var over := is_focused("danger_%d" % i)
+		if over: draw_focus_ring(chip, Color("ffe9a8"))
+		draw_panel(chip, Color("2f3f63") if over else (Color("263452") if picked else Color("141c31")),
+			accent if unlocked else Color("2b3550"), 3.0 if picked else 1.5)
 		text_centered(chip.get_center().x, chip.get_center().y + 8, str(i) if unlocked else "-", 22, accent if unlocked else Color("46526e"))
 	text_centered(SCREEN.x * 0.5, 872, "Press PLAY from the main menu to begin", 18, Color("aabce1"))
 	draw_hint_row(SCREEN.x * 0.5, 934, [["nav", "ARROWS", "DANGER / SURVIVOR"],
