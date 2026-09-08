@@ -67,6 +67,7 @@ func configure(def: Dictionary, round_number: int, who: Array, boss: bool = fals
 	hp = max_hp
 	radius = float(def.radius)
 	contact_damage = Balance.enemy_damage(round_number, float(def.damage))
+	if is_boss: contact_damage *= Balance.BOSS_DAMAGE
 	attack_cooldown = float(def.cooldown)
 	attack_timer = randf_range(0.0, attack_cooldown)
 	material_value = int(def.material)

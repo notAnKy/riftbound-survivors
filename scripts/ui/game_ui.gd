@@ -380,6 +380,22 @@ func pad_button(verb: String) -> int:
 		"ready": return Gamepad.R1
 	return Gamepad.CROSS
 
+# What "this one is selected" looks like everywhere. A slightly lighter fill and
+# a 3px border was not enough to find on a screen of four bright cards, which is
+# the complaint this answers: a bright ring sitting *outside* the panel, plus
+# corner ticks, so focus reads from the shape and not only from a colour.
+func draw_focus_ring(rect: Rect2, accent: Color) -> void:
+	var glow := Rect2(rect.position - Vector2(7, 7), rect.size + Vector2(14, 14))
+	draw_rect(glow, Color(accent.r, accent.g, accent.b, 0.16), true)
+	draw_rect(glow, accent, false, 3.0)
+	var arm: float = minf(22.0, minf(rect.size.x, rect.size.y) * 0.28)
+	for corner in [[glow.position, Vector2(1, 1)], [Vector2(glow.end.x, glow.position.y), Vector2(-1, 1)],
+			[Vector2(glow.position.x, glow.end.y), Vector2(1, -1)], [glow.end, Vector2(-1, -1)]]:
+		var at: Vector2 = corner[0]
+		var dir: Vector2 = corner[1]
+		draw_line(at, at + Vector2(arm * dir.x, 0.0), accent, 5.0)
+		draw_line(at, at + Vector2(0.0, arm * dir.y), accent, 5.0)
+
 func draw_panel(rect: Rect2, fill: Color, edge: Color, width: float = 2.0) -> void:
 	draw_rect(rect, fill, true)
 	draw_rect(rect, edge, false, width)
@@ -648,6 +664,7 @@ func draw_menu_button(rect: Rect2, label: String, action: String, color: Color, 
 	var hovered := is_focused(action, at_seat)
 	var pulse := (sin(Time.get_ticks_msec() * 0.008) + 1.0) * 0.5
 	var shown_rect := rect.grow(4.0 + pulse * 2.0) if hovered else rect
+	if hovered: draw_focus_ring(shown_rect, Color("ffe9a8"))
 	draw_panel(shown_rect, Color(color.r, color.g, color.b, 0.16) if hovered else Color("17233e"), color, 3.0 if hovered else 1.5)
 	text_centered(shown_rect.get_center().x, shown_rect.get_center().y + 8.0, label, 21, Color("ffffff") if hovered else Color("d6e2fa"))
 
@@ -694,8 +711,34 @@ func draw_hud() -> void:
 		draw_rect(Rect2(right - 520, bar_y, 520, 14), Color("1f3e4c"))
 		draw_rect(Rect2(right - 520, bar_y, 520 * float(s.xp) / maxf(1.0, float(s.xp_to_next)), 14), Color("60e8d2"))
 		text_at(Vector2(right - 520, bar_y - 10), "LEVEL %d  •  XP %d / %d" % [s.level, s.xp, s.xp_to_next], 16, Color("d0fff7"))
-	if s.round_number % 5 == 0 and s.round_phase == "combat" and s.round_time_left > s.round_length - 3.0:
+	# The banner and the bar say the same thing, and they said it in the same
+	# place. Once the bar is up it is the better of the two.
+	if s.boss_alive(): draw_boss_bar(s.boss)
+	elif s.round_number % 5 == 0 and s.round_phase == "combat" and s.round_time_left > s.round_length - 3.0:
 		text_centered(SCREEN.x * 0.5, 170, "BOSS RIFT OPEN", 24, Color("ffcf77"))
+
+# A boss carries the same 4px bar over its head as a husk does, which said
+# nothing about a fight lasting half a minute. This is the whole width of the
+# screen: the point of a boss is that you can see how far in you are.
+func draw_boss_bar(boss: Enemy) -> void:
+	var width := SCREEN.x * 0.52
+	var box := Rect2(Vector2((SCREEN.x - width) * 0.5, 132.0), Vector2(width, 28.0))
+	var ratio: float = clampf(boss.hp / maxf(boss.max_hp, 1.0), 0.0, 1.0)
+	draw_rect(box.grow(4.0), Color(0.06, 0.03, 0.09, 0.85))
+	draw_rect(box, Color("2a1230"))
+	draw_rect(Rect2(box.position, Vector2(box.size.x * ratio, box.size.y)), Color("ff5d8f"))
+	# A lighter cap on the leading edge, so the bar reads as draining rather
+	# than as a static block that happens to be a different length.
+	if ratio > 0.004:
+		draw_rect(Rect2(box.position + Vector2(box.size.x * ratio - 5.0, 0.0), Vector2(5.0, box.size.y)),
+			Color("ffd0e0"))
+	draw_rect(box, Color("ff9ec4"), false, 2.0)
+	var name: String = String(boss.definition.get("name", "BOSS"))
+	text_centered(box.get_center().x, box.position.y - 9.0, name, 20, Color("ffd0e0"))
+	# Inside the bar, not under it: under it lands on the boss itself, which is
+	# standing directly below at the top of the arena.
+	text_centered(box.get_center().x, box.get_center().y + 6.0,
+		"%d / %d" % [int(round(boss.hp)), int(round(boss.max_hp))], 15, Color(0.16, 0.05, 0.12))
 
 # Two players, two sets of vitals. Seat 0 reads from the left edge and seat 1
 # from the right -- the same halves they get in the shop, so which corner is
@@ -779,7 +822,8 @@ func draw_offer_card(index: int, s: GameSession, who: Survivor, at_seat: int) ->
 	var pinned: bool = who.shop.is_locked(index)
 	var edge: Color = offer.color if affordable else Color("54617d")
 	if pinned: edge = Color("ffe09b")
-	draw_panel(rect, Color(0.12,0.16,0.28,0.95) if hovered else Color("151d35"), edge, 3.0 if (hovered or pinned) else 2.0)
+	if hovered: draw_focus_ring(rect, Color("ffe9a8"))
+	draw_panel(rect, Color(0.16,0.21,0.36,0.98) if hovered else Color("151d35"), edge, 3.0 if (hovered or pinned) else 2.0)
 	text_at(rect.position + Vector2(20, 38), "%s  (%d)" % ["WEAPON" if offer.kind == "weapon" else "ITEM", index + 1], 13, Color("8ea4cb"))
 	if offer.kind == "weapon": Icons.weapon(self, String(offer.id), rect.position + Vector2(rect.size.x - 52, 56), 30.0, edge)
 	else: Icons.item(self, String(offer.id), rect.position + Vector2(rect.size.x - 52, 56), 26.0, edge)
@@ -850,7 +894,8 @@ func draw_weapon_slots(s: GameSession, who: Survivor, at_seat: int) -> void:
 		var weapon: Weapon = who.weapons[i]
 		var selling := is_focused("sell_%d" % i, at_seat)
 		var merging := is_focused("combine_%d" % i, at_seat)
-		draw_panel(rect, Color(0.14,0.10,0.14,0.95) if selling else Color("1a2440"), weapon.def().color, 2.0 if selling or merging else 1.5)
+		if selling or merging: draw_focus_ring(rect, Color("ffe9a8"))
+		draw_panel(rect, Color(0.20,0.15,0.20,0.98) if selling else Color("1a2440"), weapon.def().color, 2.0 if selling or merging else 1.5)
 		Icons.weapon(self, weapon.id, rect.position + Vector2(26, 31), 17.0, weapon.def().color)
 		text_at(rect.position + Vector2(50, 26), weapon.display_name(), 15, weapon.def().color)
 		# The line under the name says what the focused action would actually do.
@@ -965,8 +1010,10 @@ func draw_upgrade_pane(who: Survivor, at_seat: int) -> void:
 		var focused := is_focused("upgrade_%d" % i, at_seat)
 		# The focused card grows and brightens, the same way a menu button
 		# does, so a controller has something to steer.
-		if focused: rect = rect.grow(6.0)
-		draw_panel(rect, Color(0.14, 0.19, 0.34, 0.98) if focused else Color("202b4a"), edge, 5.0 if focused else 3.0)
+		if focused:
+			rect = rect.grow(6.0)
+			draw_focus_ring(rect, Color("ffe9a8"))
+		draw_panel(rect, Color(0.18, 0.24, 0.42, 0.99) if focused else Color("202b4a"), edge, 5.0 if focused else 3.0)
 		text_at(rect.position + Vector2(24, 52), "%d" % (i + 1), 28, Color("ffe09b"))
 		text_at(rect.position + Vector2(24, 88), String(choices[i].rarity), 14, edge)
 		var granted: Array = choices[i].stats.keys()

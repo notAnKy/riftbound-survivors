@@ -39,6 +39,8 @@ var kills := 0
 # Bosses actually put down this run, which is a thing an achievement asks for
 # and nothing else was counting.
 var bosses_killed := 0
+# The boss currently on the field, for the HUD's bar. Read through boss_alive().
+var boss: Enemy = null
 # Blasts whose fuse is still burning: {at, spec, timer}. A bloater's explosion
 # is deliberately not instant, so the damage has to outlive the enemy that
 # caused it and cannot simply ride the death signal any more.
@@ -216,6 +218,7 @@ func reset_run() -> void:
 	spawn_timer = 0.0
 	kills = 0
 	bosses_killed = 0
+	boss = null
 	pending_blasts.clear()
 	round_number = 1
 	round_length = round_duration
@@ -371,7 +374,7 @@ func begin_round() -> void:
 	spawn_timer = 0.15
 	if round_number % 5 == 0:
 		var top := Vector2(Arena.BOUNDS.get_center().x, Arena.BOUNDS.position.y + 70.0)
-		spawn_enemy(EnemyCatalog.boss(round_number), top, true)
+		boss = spawn_enemy(EnemyCatalog.boss(round_number), top, true)
 		audio.play("boom")
 
 # Surviving a wave pays back part of the bar. Once per wave and capped at max
@@ -384,6 +387,10 @@ func heal_between_waves() -> void:
 		var flat := who.player.max_hp * Balance.WAVE_CLEAR_HEAL
 		var missing := maxf(0.0, who.player.max_hp - who.player.hp) * Balance.WAVE_CLEAR_HEAL_MISSING
 		who.player.heal(flat + missing)
+
+# A boss frees itself the frame it dies, so validity is the only safe test.
+func boss_alive() -> bool:
+	return boss != null and is_instance_valid(boss) and boss.alive
 
 # What the run was, for AchievementCatalog to read. Every value is a high-water
 # mark across both seats, so a co-op run is judged on what the pair managed.

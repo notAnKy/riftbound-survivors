@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 362
+const EXPECTED_CHECKS := 368
 var checks := 0
 
 func _initialize() -> void:
@@ -274,7 +274,24 @@ func test_balance_curve() -> void:
 	var r10 := Balance.enemy_hp(10, husk)
 	check("round 1 enemies die to a few shots (%.0f hp)" % r1, r1 < 45.0)
 	check("round 10 is a step up without being a wall (%.0f hp)" % r10, r10 > 200.0 and r10 < 900.0)
-	check("boss at round 5 is beatable (%.0f hp)" % Balance.boss_hp(5), Balance.boss_hp(5) < 900.0)
+	# The bug this replaces: boss HP was linear while every enemy compounded, so
+	# a wave-20 brute ended up with 2.4x the final boss's health and the wave-5
+	# boss died in about two seconds. A boss has to outweigh the fattest thing
+	# in its own wave, at *every* boss wave, not just the first.
+	var brute: float = EnemyCatalog.get_enemy("brute").hp
+	var outweighs := true
+	var worst := ""
+	for wave in [5, 10, 15, 20]:
+		var ratio: float = Balance.boss_hp(wave) / Balance.enemy_hp(wave, brute)
+		if ratio < 2.5:
+			outweighs = false
+			worst = "wave %d at %.1fx" % [wave, ratio]
+	check("a boss outweighs its wave's brute throughout (%s)" % ("ok" if outweighs else worst), outweighs)
+	# And is still killable: a fight, not a wall.
+	check("boss at round 5 is a fight, not a wall (%.0f hp)" % Balance.boss_hp(5),
+		Balance.boss_hp(5) > 1500.0 and Balance.boss_hp(5) < 4000.0)
+	check("and it hits harder than the crowd it arrives with (%.0fx)" % Balance.BOSS_DAMAGE,
+		Balance.BOSS_DAMAGE > 1.0)
 	var need := Balance.XP_FIRST_LEVEL
 	var total := 0
 	for i in range(5):
@@ -313,6 +330,24 @@ func test_shop_buying() -> void:
 	check("materials are spent (%d left)" % s.materials, s.materials == 0)
 	check("the item stat lands on the sheet (%.0f -> %.0f)" % [before, s.stats.get_stat("damage")], is_equal_approx(s.stats.get_stat("damage"), before + 8.0))
 	check("the slot is emptied", s.shop.offers[0].is_empty())
+
+	# A sold card must leave the cursor's list. It did not, so walking the shop
+	# with a pad stopped dead on everything already bought.
+	game.state = "shop"
+	var rows: Array = game.menu_items()
+	check("a sold card leaves the navigable list (%s)" % str(rows.slice(0, 4)),
+		not ("buy_0" in rows) and not ("lock_0" in rows))
+	check("and the cards still on the board stay in it", "buy_1" in rows and "buy_2" in rows)
+	# Park the cursor on the last row, empty the board, and it must not be left
+	# pointing past the end of a list that just got shorter.
+	game.menu_index = rows.size() - 1
+	for i in range(Shop.SLOTS):
+		s.shop.offers[i] = {}
+	await step(2)
+	check("the cursor never survives past the end of a shrunken list (%d of %d)"
+		% [game.menu_index, game.menu_items().size()],
+		game.menu_index < game.menu_items().size())
+	check("and it still points at something real (%s)" % game.focused_action(), game.focused_action() != "")
 	check("the same slot cannot be bought twice", not s.buy(0))
 	var plate: Dictionary = {"kind":"item", "id":"scrap_plate", "tier":1, "name":"SCRAP PLATE",
 		"text":"", "color":Color.WHITE, "price":999}

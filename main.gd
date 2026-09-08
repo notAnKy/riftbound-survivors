@@ -176,6 +176,11 @@ func _process(delta: float) -> void:
 	# so syncing from it would haul the menu cursor back onto that row every
 	# frame and the d-pad would appear to do nothing at all.
 	follow_pointer(get_viewport().get_mouse_position())
+	# Buying, selling and combining all shorten the list under the cursor, so
+	# clamp here rather than at each of the places that can shorten it.
+	for seat in range(seat_count()):
+		var rows := menu_items(seat).size()
+		if rows > 0: set_cursor(seat, clampi(cursor(seat), 0, rows - 1))
 	poll_stick(delta)
 	poll_lobby(delta)
 	# Both ways of sweeping a volume bar, and one disk write when the sweep
@@ -231,17 +236,23 @@ func menu_items(at_seat: int = 0) -> Array[String]:
 			for i in range(session.seat(at_seat).upgrades.size()): items.append("upgrade_%d" % i)
 		"shop":
 			if session == null: return items
+			# Checked before the loop, not after it. The loop below dereferences
+			# the seat, so a null test underneath it never ran in time.
+			var who := session.seat(at_seat)
+			if who == null: return items
 			# In drawing order, which is what makes left and right feel like
 			# they move across the screen rather than through a list.
 			for i in range(GameUI.SHOP_CARDS):
+				# A sold card is not something the cursor can land on. It was,
+				# so walking the shop with a pad hit dead stops on everything
+				# already bought -- and the pin beside it was reachable too.
+				if offer_empty(who.shop, i) and not who.shop.is_locked(i): continue
 				items.append("buy_%d" % i)
 				# The pin sits inside its own card, so it belongs beside it.
-				if session.seat(at_seat).shop.is_locked(i) or not offer_empty(session.seat(at_seat).shop, i):
-					items.append("lock_%d" % i)
+				items.append("lock_%d" % i)
 			items.append("reroll")
 			items.append("go")
-			if session.seat(at_seat) == null: return items
-			for i in range(session.seat(at_seat).weapons.size()):
+			for i in range(who.weapons.size()):
 				items.append("sell_%d" % i)
 				if session.can_combine(i, at_seat): items.append("combine_%d" % i)
 	return items

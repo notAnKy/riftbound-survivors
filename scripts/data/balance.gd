@@ -23,8 +23,14 @@ const ENEMY_SPEED_MAX := 82.0
 const ENEMY_SPEED_PER_ROUND := 4.0
 const ENEMY_DAMAGE_PER_ROUND := 1.5
 
-const BOSS_HP_BASE := 300.0
-const BOSS_HP_PER_ROUND := 0.18
+# A boss is priced as a very fat enemy rather than on its own curve. It used to
+# be BOSS_HP_BASE * (1 + 0.18 * round), which is *linear* while every regular
+# enemy compounds -- so a wave-20 brute ended up with 2.4x the final boss's
+# health, and the wave-5 boss died in about two seconds of focused fire. Running
+# it through enemy_hp means it can never fall behind the crowd again.
+const BOSS_HP_TYPE := 40.0
+# And it hits harder than the thing it is standing in a crowd of.
+const BOSS_DAMAGE := 1.35
 const BOSS_SPEED_BASE := 45.0
 const BOSS_SPEED_PER_ROUND := 2.0
 
@@ -222,7 +228,7 @@ static func enemy_damage(round_number: int, base: float) -> float:
 	return base + float(round_number) * ENEMY_DAMAGE_PER_ROUND
 
 static func boss_hp(round_number: int) -> float:
-	return BOSS_HP_BASE * (1.0 + float(round_number - 1) * BOSS_HP_PER_ROUND)
+	return enemy_hp(round_number, BOSS_HP_TYPE)
 
 static func next_level_xp(current: int) -> int:
 	return int(ceil(float(current) * XP_GROWTH)) + XP_FLAT
