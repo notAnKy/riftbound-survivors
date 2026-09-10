@@ -35,6 +35,10 @@ desktop.ini
 .vscode/
 .idea/
 
+# Godot imports every image under the project root, including the README
+# screenshots. Their .import files are editor metadata, not source.
+docs/**/*.import
+
 # --- Scratch ----------------------------------------------------------------
 scratchpad/
 *.log
