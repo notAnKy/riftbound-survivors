@@ -15,7 +15,7 @@ Everything is listed in-game under Settings > Controls, for whichever device
 you are holding. The short version:
 
   WASD / arrows     move (that is the only thing you control)
-  Q                 Rift Dash
+  Left Shift        Rift Dash
   E                 Rift Nova - damages and throws back everything near you
   1-4               pick a level-up reward, or buy that shop slot
   L                 pin the shop offer you are on (it survives rerolls)

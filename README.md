@@ -110,7 +110,7 @@ prompts switch to whichever device is in your hands the moment you touch it.
 | Move | WASD / Arrows | Left stick / D-pad |
 | Select | Enter / Click | Cross (A) |
 | Back | Esc | Circle (B) |
-| Dash | Q | Square (X) |
+| Dash | Left Shift | Square (X) |
 | Rift Nova | E | Triangle (Y) |
 | Pin an offer | L | Square (X) |
 | Reroll shop | R | Triangle (Y) |

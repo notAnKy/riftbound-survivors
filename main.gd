@@ -727,7 +727,7 @@ const CONTROL_ROWS := [
 	{"label": "Select, buy, take", "verb": "confirm", "key": "Enter  /  Click"},
 	{"label": "Back, cancel", "verb": "back", "key": "Esc"},
 	{"label": "Pause the run", "verb": "pause", "key": "Esc"},
-	{"label": "Dash", "verb": "alt", "key": "Q"},
+	{"label": "Dash", "verb": "alt", "key": "Shift"},
 	{"label": "Rift nova", "verb": "special", "key": "E"},
 	{"label": "Pin an offer (shop)", "verb": "alt", "key": "L"},
 	{"label": "Reroll the shop", "verb": "special", "key": "R"},
@@ -984,5 +984,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif state == "level_up":
 		if key.keycode >= KEY_1 and key.keycode <= KEY_4: choose_upgrade(key.keycode - KEY_1, seat_for("kb"))
 	elif state == "playing":
-		if key.keycode == KEY_Q: session.dash(seat_for("kb"))
+		# Shift, not a letter. Movement binds *physical* WASD, so on an AZERTY
+		# keyboard it lands on ZQSD -- and the key labelled Q there is the
+		# physical A position, which is move-left. Dash on `keycode == KEY_Q`
+		# therefore fired every time that player walked left. A modifier key
+		# sits in the same physical place on every layout and cannot collide.
+		if key.keycode == KEY_SHIFT: session.dash(seat_for("kb"))
 		elif key.keycode == KEY_E: session.rift_nova(seat_for("kb"))

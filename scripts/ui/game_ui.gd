@@ -733,7 +733,7 @@ func draw_hud() -> void:
 	# The two abilities are the only controls the fight needs named, and they
 	# are the ones that differ most between a keyboard and a pad.
 	var abilities: Array = [
-		["alt", "Q", "DASH  %s" % ("READY" if s.dash_cooldown <= 0.0 else "%.1fs" % s.dash_cooldown)],
+		["alt", "SHIFT", "DASH  %s" % ("READY" if s.dash_cooldown <= 0.0 else "%.1fs" % s.dash_cooldown)],
 		["special", "E", "NOVA  %s" % ("READY" if s.nova_cooldown <= 0.0 else "%.1fs" % s.nova_cooldown)],
 	]
 	# Centred so the row ends flush with the right margin, and lifted clear of

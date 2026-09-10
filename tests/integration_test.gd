@@ -4,7 +4,7 @@ extends SceneTree
 # Run: godot --headless --script res://tests/integration_test.gd
 
 var failures := 0
-const EXPECTED_CHECKS := 397
+const EXPECTED_CHECKS := 399
 var checks := 0
 
 func _initialize() -> void:
@@ -88,6 +88,7 @@ func bootstrap() -> void:
 	await test_crowd_control()
 	await test_controller()
 	await test_quit_confirmation()
+	await test_dash_key()
 	await test_slider_sweeping()
 	test_shop_prices_climb()
 	await test_melee_archetype()
@@ -1232,6 +1233,24 @@ func test_crowd_control() -> void:
 	await step(4)
 	check("and a shove pushes one back out (%.0f -> %.0fpx)" % [near, shoved.position.distance_to(target)],
 		shoved.position.distance_to(target) > near)
+	game.free()
+
+# The dash key had no test at all, which is how it stayed on Q. Movement binds
+# *physical* WASD, so on an AZERTY keyboard it lands on ZQSD -- and the key
+# labelled Q there is the physical A position, which is move-left. Dashing and
+# walking left were the same keypress for that player.
+func test_dash_key() -> void:
+	var game = await fresh_game()
+	var s = game.session
+	game.state = "playing"
+	s.player.dash_cooldown = 0.0
+	press(game, KEY_SHIFT)
+	check("shift dashes (%.1fs cooldown)" % s.player.dash_cooldown, s.player.dash_cooldown > 0.0)
+	# And the letter it used to be must not, or the collision is straight back.
+	s.player.dash_cooldown = 0.0
+	press(game, KEY_Q)
+	check("and the old letter binding is gone (%.1f)" % s.player.dash_cooldown,
+		is_zero_approx(s.player.dash_cooldown))
 	game.free()
 
 # A mouse left sitting on a card must not fight the arrow keys. The shop and
