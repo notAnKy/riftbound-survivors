@@ -1,5 +1,10 @@
 # Assets and licences
 
+The project itself is licensed **GPL-3.0** (see `LICENSE` at the repository
+root). Everything below is about the assets specifically: what is original and
+therefore covered by that licence, and what came from elsewhere and keeps its
+own. Both of the third-party licences here are GPL-compatible.
+
 Two lists. What ships in the build, and what used to and no longer does — the
 second matters because a licence that lapsed by removing the art comes straight
 back if the art ever returns.
